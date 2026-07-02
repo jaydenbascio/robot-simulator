@@ -1,0 +1,8 @@
+{
+  "name": "robot-simulator",
+  "version-string": "1.0.0",
+  "dependencies": [
+    "catch2",
+    "sdl3"
+  ]
+}

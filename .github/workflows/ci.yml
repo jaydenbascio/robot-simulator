@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ubuntu-lint:
+    name: Ubuntu Lint & Doxygen
+    runs-on: ubuntu-latest
+    env:
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: d87340acc46bdeda386037b38aca30136e667e47
+
+      - name: Run Clang-Format Check
+        shell: bash
+        run: |
+          git ls-files | grep -E '\.(cpp|h|hpp)$' | xargs clang-format --dry-run --Werror
+
+      - name: Run Doxygen Validation
+        uses: mattnotmitt/doxygen-action@v1.12.0
+        with:
+          doxyfile-path: './Doxyfile'
+          working-directory: '.'
+
+  windows-build-test:
+    name: Windows Build & Test
+    runs-on: windows-latest
+    env:
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: d87340acc46bdeda386037b38aca30136e667e47
+
+      - name: Install toolchain & build (setupc.ps1)
+        shell: powershell
+        run: |
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          .\scripts\setupc.ps1 -RepoRoot "${{ github.workspace }}" -CI
+
+      - name: Propagate installed toolchain PATH
+        shell: powershell
+        run: |
+          $machinePath = [Environment]::GetEnvironmentVariable('Path','Machine')
+          $userPath    = [Environment]::GetEnvironmentVariable('Path','User')
+          ($machinePath -split ';') + ($userPath -split ';') |
+            Where-Object { $_ -and (Test-Path $_) } |
+            Select-Object -Unique |
+            Add-Content -Path $env:GITHUB_PATH
+
+      - name: Test (Debug)
+        run: ctest --preset debug-test
+        

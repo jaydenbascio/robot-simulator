@@ -1,0 +1,8 @@
+# Build folder
+build/
+
+# IDE-specific folders
+.vs/
+
+# Submodules
+vcpkg/

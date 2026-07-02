@@ -1,0 +1,23 @@
+# Block Visual Studio files
+.vs/
+.vs*
+*.vsidx
+*.suo
+
+# Block local VS Code states but allows team-wide configurations
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+
+# Block personal CMake configurations
+CMakeUserPresets.json
+
+# Output folders
+/out/
+/build/
+/vcpkg_installed/
+
+# Local VS workspace configuration file
+scripts/run-env.ps1

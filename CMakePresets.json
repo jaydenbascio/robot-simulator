@@ -1,0 +1,92 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "description": "Sets up vcpkg toolchain and Ninja generator",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": {
+          "type": "FILEPATH",
+          "value": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake"
+        },
+		"VCPKG_TARGET_TRIPLET": "x64-mingw-static",
+		"VCPKG_HOST_TRIPLET": "x64-mingw-static",
+		"VCPKG_CHAINLOAD_TOOLCHAIN_FILE": {
+			"type": "FILEPATH",
+			"value": "${sourceDir}/vcpkg/scripts/toolchains/mingw.cmake"
+		},
+		"VCPKG_TARGET_ARCHITECTURE": "x64",
+		"VCPKG_CRT_LINKAGE": "dynamic"
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug",
+      "description": "Debug build",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "debug-asan",
+      "displayName": "Debug + AddressSanitizer",
+      "inherits": "debug",
+      "cacheVariables": {
+        "CMAKE_CXX_FLAGS":  "-fsanitize=address,undefined -fno-omit-frame-pointer"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release",
+      "description": "Release build",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug-build",
+      "displayName": "Build (Debug)",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "release-build",
+      "displayName": "Build (Release)",
+      "configurePreset": "release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "debug-test",
+      "displayName": "Run All Tests (Debug)",
+      "description": "Runs all unit tests against the debug build",
+      "configurePreset": "debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "stopOnFailure": false
+      }
+    },
+    {
+      "name": "release-test",
+      "displayName": "Run All Tests (Release)",
+      "description": "Runs all unit tests against the release build",
+      "configurePreset": "release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "stopOnFailure": false
+      }
+    }
+  ]
+}
