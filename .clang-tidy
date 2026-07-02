@@ -1,0 +1,50 @@
+Checks: >
+  -*,
+  bugprone-*,
+  modernize-*,
+  performance-*,
+  readability-*
+WarningsAsErrors: '*'
+HeaderFilterRegex: '^(libs/|apps/).*'
+CheckOptions:
+  # Class / Struct names: PascalCase (e.g. MyAwesomeClass)
+  - key:             readability-identifier-naming.ClassCase
+    value:           CamelCase
+  - key:             readability-identifier-naming.StructCase
+    value:           CamelCase
+
+  # Function / Method names: PascalCase (e.g. MyAwesomeFunction)
+  - key:             readability-identifier-naming.FunctionCase
+    value:           CamelCase
+  - key:             readability-identifier-naming.MethodCase
+    value:           CamelCase
+
+  # Parameter names: camelCase (e.g. argOne)
+  - key:             readability-identifier-naming.ParameterCase
+    value:           camelCase
+
+  # Local variables: camelCase (e.g. myValue)
+  - key:             readability-identifier-naming.VariableCase
+    value:           camelCase
+
+  # Private member variables: m_PascalCase (e.g. m_PrivateVariable)
+  - key:             readability-identifier-naming.PrivateMemberPrefix
+    value:           m_
+  - key:             readability-identifier-naming.PrivateMemberCase
+    value:           CamelCase
+
+  # Protected member variables: m_PascalCase (e.g. m_ProtectedVariable)
+  - key:             readability-identifier-naming.ProtectedMemberPrefix
+    value:           m_
+  - key:             readability-identifier-naming.ProtectedMemberCase
+    value:           CamelCase
+
+  # Public member variables: camelCase (e.g. publicVariable)
+  - key:             readability-identifier-naming.PublicMemberCase
+    value:           camelCase
+
+  # Constant / Constexpr variables: kPascalCase (e.g. kMyConstant)
+  - key:             readability-identifier-naming.ConstexprVariablePrefix
+    value:           k
+  - key:             readability-identifier-naming.ConstexprVariableCase
+    value:           CamelCase

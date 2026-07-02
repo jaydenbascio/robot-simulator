@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+# Cancel in-progress CI runs for the same branch/PR when a new commit is pushed
+# Saves runner minutes which can cost money
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    env:
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite" # Cache already installed packages
+
+    steps:
+      # 1. Checkout the repository
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      # 2. Set up VCPkg with the configured commit hash from vcpkg-configuration.json
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: cd61e1e26a038e82d6550a3ebbe0fbbfe7da78e3
+
+      # 4. Run Clang-Format Check
+      - name: Run Clang-Format Check
+        shell: bash
+        run: |
+          find . -type f \( -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) \
+          ! -path "*/build/*" ! -path "*/vcpkg/*" ! -path "*/.vs/*" | \
+          xargs clang-format --dry-run --Werror
+
+      # 5. Run Doxygen Validation (TODO: Migrate to Dockerfile)
+      - name: Run Doxygen Validation
+        uses: mattnotmitt/doxygen-action@v1.12.0
+        with:
+          doxyfile-path: './Doxyfile'
+          working-directory: '.'
+
+      # 6. Configure the build as release with clang-tidy enabled
+      - name: Configure as Release
+        run: cmake --preset release -DCMAKE_CXX_CLANG_TIDY=clang-tidy
+
+      # 7. Build the project (will execute clang-tidy and fail on warnings/errors)
+      - name: Build Release
+        run: cmake --build --preset release-build
+
+      # 9. Run CTest tests
+      - name: Test Release
+        run: ctest --preset release-test
