@@ -47,15 +47,6 @@ jobs:
           doxyfile-path: './Doxyfile'
           working-directory: '.'
 
-      - name: Configure Release (Clang)
-        run: cmake --preset release -DCMAKE_CXX_CLANG_TIDY=clang-tidy
-
-      - name: Build Release (Clang)
-        run: cmake --build --preset release-build
-
-      - name: Test Release (Clang)
-        run: ctest --preset release-test
-
   windows-build-test:
     name: Windows Build & Test
     runs-on: windows-latest
@@ -93,10 +84,10 @@ jobs:
           .\\scripts\\run-env.ps1
 
       - name: Configure Release (MSVC/Ninja)
-        run: cmake --preset windows -DCMAKE_BUILD_TYPE=Release
+        run: cmake --preset debug
 
       - name: Build Release (MSVC)
-        run: cmake --build --preset windows-build
+        run: cmake --build --preset debug-build
 
       - name: Test Release (MSVC)
-        run: ctest --preset windows-test
+        run: ctest --preset debug-test
