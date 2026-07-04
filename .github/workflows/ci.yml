@@ -36,7 +36,7 @@ jobs:
       - name: Run Clang-Format Check
         shell: bash
         run: |
-          clang-format --dry-run --Werror $(find . -type f \( -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \))
+          git ls-files | grep -E '\.(cpp|h|hpp)$' | xargs clang-format --dry-run --Werror
 
       # 5. Run Doxygen Validation (TODO: Migrate to Dockerfile)
       - name: Run Doxygen Validation
