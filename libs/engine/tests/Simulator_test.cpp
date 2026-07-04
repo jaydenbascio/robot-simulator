@@ -4,10 +4,8 @@
 
 TEST_CASE("Simulator Lifecycle", "[simulator]") {
     robotsimulator::engine::Simulator sim;
-        
-    SECTION("Initial State") {
-        REQUIRE(sim.IsRunning());
-    }
+
+    SECTION("Initial State") { REQUIRE(sim.IsRunning()); }
 
     SECTION("Update loop tick") {
         REQUIRE_NOTHROW(sim.Update(0.016));
@@ -49,7 +47,7 @@ TEST_CASE("Simulator Stop Repeatability", "[simulator]") {
 
         REQUIRE_NOTHROW(sim.Stop());
         REQUIRE_FALSE(sim.IsRunning());
-        
+
         REQUIRE_NOTHROW(sim.Stop());
         REQUIRE_FALSE(sim.IsRunning());
     }
@@ -61,7 +59,7 @@ TEST_CASE("Simulator Move Operations", "[simulator]") {
         REQUIRE(original.IsRunning());
 
         robotsimulator::engine::Simulator moved(std::move(original));
-        
+
         // The moved-to simulator should be running too
         REQUIRE(moved.IsRunning());
     }
@@ -69,7 +67,7 @@ TEST_CASE("Simulator Move Operations", "[simulator]") {
     SECTION("Move Assignment") {
         robotsimulator::engine::Simulator original;
         REQUIRE(original.IsRunning());
-        
+
         robotsimulator::engine::Simulator moved;
         moved.Stop();
         REQUIRE_FALSE(moved.IsRunning());
@@ -80,4 +78,3 @@ TEST_CASE("Simulator Move Operations", "[simulator]") {
         REQUIRE(moved.IsRunning());
     }
 }
-

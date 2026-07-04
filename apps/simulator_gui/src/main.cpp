@@ -1,6 +1,6 @@
 #include <engine/Simulator.h>
-#include <ui/Renderer2D.h>
 #include <robotsimulator/version.h>
+#include <ui/Renderer2D.h>
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -16,11 +16,8 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    SDL_Log("Starting Robot Simulator v%s (Major: %d, Minor: %d, Patch: %d)",
-            ROBOTSIMULATOR_VERSION,
-            ROBOTSIMULATOR_VERSION_MAJOR,
-            ROBOTSIMULATOR_VERSION_MINOR,
-            ROBOTSIMULATOR_VERSION_PATCH);
+    SDL_Log("Starting Robot Simulator v%s (Major: %d, Minor: %d, Patch: %d)", ROBOTSIMULATOR_VERSION,
+            ROBOTSIMULATOR_VERSION_MAJOR, ROBOTSIMULATOR_VERSION_MINOR, ROBOTSIMULATOR_VERSION_PATCH);
 
     // Initialize the renderer and simulator
     robotsimulator::ui::Renderer2D renderer("MCL Simulator", 600, 400);

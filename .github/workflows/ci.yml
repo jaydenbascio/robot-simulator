@@ -30,15 +30,13 @@ jobs:
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
-          vcpkgGitCommitId: cd61e1e26a038e82d6550a3ebbe0fbbfe7da78e3
+          vcpkgGitCommitId: d87340acc46bdeda386037b38aca30136e667e47
 
       # 4. Run Clang-Format Check
       - name: Run Clang-Format Check
         shell: bash
         run: |
-          find . -type f \( -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) \
-          ! -path "*/build/*" ! -path "*/vcpkg/*" ! -path "*/.vs/*" | \
-          xargs clang-format --dry-run --Werror
+          clang-format --dry-run --Werror $(find . -type f \( -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \))
 
       # 5. Run Doxygen Validation (TODO: Migrate to Dockerfile)
       - name: Run Doxygen Validation
