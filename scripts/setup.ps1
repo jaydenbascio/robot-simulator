@@ -2,6 +2,10 @@
 # Setup script for Windows developers
 # ==============================================================================
 
+param (
+    [switch]$CI
+)
+
 $ErrorActionPreference = "Inquire"
 
 $ScriptErrorCount = 0
@@ -9,11 +13,13 @@ $ScriptErrorCount = 0
 # ------------------------------------------------------------------------------
 # 0. Ensure Admin Privileges
 # ------------------------------------------------------------------------------
-# This script equires administrator permissions to run Visual Studio installer/bootstrapper commands
+# Pass the -CI flag forward if we need to elevate privileges
+$CIArg = if ($CI) { "-CI" } else { "" }
+
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host "This script requires Administrator privileges to install Visual Studio components." -ForegroundColor Yellow
     Write-Host "Restarting as Administrator..." -ForegroundColor Yellow
-    $Proc = Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs -Wait -PassThru
+    $Proc = Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" $CIArg" -Verb RunAs -Wait -PassThru
     exit $Proc.ExitCode
 }
 
@@ -50,15 +56,20 @@ if ($GitPath) {
     }
 }
 
-# If Git is missing, prompt to install via winget
+# If Git is missing, handle prompting or CI fallback
 $InstallGit = $false
 if (-not $GitInstalled) {
     Write-Host "Git was not detected on your system." -ForegroundColor Yellow
-    $Response = Read-Host "Would you like to automatically install Git via winget? (y/n)"
-    if ($Response -eq 'y' -or $Response -eq 'Y') {
+    if ($CI) {
+        Write-Host "[CI Mode] Defaulting to automatically installing Git via winget." -ForegroundColor Cyan
         $InstallGit = $true
     } else {
-        Write-Host "[WARNING] Git is required to clone and bootstrap vcpkg. Continuing without installing..." -ForegroundColor Yellow
+        $Response = Read-Host "Would you like to automatically install Git via winget? (y/n)"
+        if ($Response -eq 'y' -or $Response -eq 'Y') {
+            $InstallGit = $true
+        } else {
+            Write-Host "[WARNING] Git is required to clone and bootstrap vcpkg. Continuing without installing..." -ForegroundColor Yellow
+        }
     }
 }
 
@@ -101,7 +112,7 @@ if (Test-Path $VsWherePath) {
     }
 }
 
-# --- 1.4 Present Visual Studio menu to user ---
+# --- 1.4 Present Visual Studio menu to user / CI Fallback ---
 $VSSelectionAction = "Skip" # Default is to skip
 $SelectedVSPath = $null
 
@@ -110,6 +121,9 @@ if ($Installations.Count -gt 0) {
     Write-Host "The following Visual Studio installations were found:" -ForegroundColor Cyan
     
     $Options = @()
+    $BestCIIndex = 1
+    $FoundPerfectMatch = $false
+
     for ($i = 0; $i -lt $Installations.Count; $i++) {
         $Inst = $Installations[$i]
         $Path = $Inst.installationPath
@@ -118,10 +132,12 @@ if ($Installations.Count -gt 0) {
         
         # Check if this installation path is listed in the satisfying installations
         $IsSatisfied = $false
-        foreach ($SatDir in $SatisfyingDirs) {
-            if ($SatDir.Trim().ToLower() -eq $Path.Trim().ToLower()) {
-                $IsSatisfied = $true
-                break
+        if ($SatisfyingDirs) {
+            foreach ($SatDir in $SatisfyingDirs) {
+                if ($SatDir.Trim().ToLower() -eq $Path.Trim().ToLower()) {
+                    $IsSatisfied = $true
+                    break
+                }
             }
         }
         
@@ -130,6 +146,10 @@ if ($Installations.Count -gt 0) {
         if ($IsSatisfied) {
             $StatusText = "[Satisfies .vsconfig]"
             $ForegroundColor = "Green"
+            if (-not $FoundPerfectMatch) {
+                $BestCIIndex = $i + 1 # Prefer one that already works perfectly in CI
+                $FoundPerfectMatch = $true
+            }
         } else {
             $StatusText = "[Does NOT satisfy .vsconfig (will add missing components during setup)]"
             $ForegroundColor = "Yellow"
@@ -169,36 +189,49 @@ if ($Installations.Count -gt 0) {
         DisplayName = "Skip"
     }
     
-    # Get what option the user wants
+    # Get what option the user wants (or auto-select in CI)
     $SelectionInt = 0
-    while ($true) {
-        $SelectionStr = Read-Host "Select an option (1-$SkipOptionNum)"
-        if ([int]::TryParse($SelectionStr, [ref]$SelectionInt) -and $SelectionInt -ge 1 -and $SelectionInt -le $Options.Count) { # Check if SelectionStr is an int within range
-            $Sel = $Options[$SelectionInt - 1]
-            if ($Sel.Type -eq "New") {
-                $VSSelectionAction = "InstallNew"
-            } elseif ($Sel.Type -eq "Skip") {
-                $VSSelectionAction = "Skip"
-            } else {
-                if ($Sel.IsSatisfied) {
-                    $VSSelectionAction = "UseExisting"
+    if ($CI) {
+        $SelectionInt = $BestCIIndex
+        Write-Host "[CI Mode] Auto-selecting option [$SelectionInt] ($($Options[$SelectionInt - 1].DisplayName))" -ForegroundColor Cyan
+        $Sel = $Options[$SelectionInt - 1]
+        if ($Sel.IsSatisfied) { $VSSelectionAction = "UseExisting" } else { $VSSelectionAction = "ModifyExisting" }
+        $SelectedVSPath = $Sel.Path
+    } else {
+        while ($true) {
+            $SelectionStr = Read-Host "Select an option (1-$SkipOptionNum)"
+            if ([int]::TryParse($SelectionStr, [ref]$SelectionInt) -and $SelectionInt -ge 1 -and $SelectionInt -le $Options.Count) {
+                $Sel = $Options[$SelectionInt - 1]
+                if ($Sel.Type -eq "New") {
+                    $VSSelectionAction = "InstallNew"
+                } elseif ($Sel.Type -eq "Skip") {
+                    $VSSelectionAction = "Skip"
                 } else {
-                    $VSSelectionAction = "ModifyExisting"
+                    if ($Sel.IsSatisfied) {
+                        $VSSelectionAction = "UseExisting"
+                    } else {
+                        $VSSelectionAction = "ModifyExisting"
+                    }
+                    $SelectedVSPath = $Sel.Path
                 }
-                $SelectedVSPath = $Sel.Path
+                break
             }
-            break
+            Write-Host "Invalid selection. Please enter a number between 1 and $SkipOptionNum." -ForegroundColor Red
         }
-        Write-Host "Invalid selection. Please enter a number between 1 and $SkipOptionNum." -ForegroundColor Red
     }
 } else {
     Write-Host "No existing Visual Studio installations were detected." -ForegroundColor Yellow
-    $Response = Read-Host "Would you like to install/configure Visual Studio 2022 Build Tools now? (y/n)"
-    if ($Response -eq 'y' -or $Response -eq 'Y') {
+    if ($CI) {
+        Write-Host "[CI Mode] Auto-selecting to install fresh Visual Studio 2022 Build Tools." -ForegroundColor Cyan
         $VSSelectionAction = "InstallNew"
     } else {
-        $VSSelectionAction = "Skip"
-        Write-Host "Skipping Visual Studio configuration. You will need to manually configure compiler settings." -ForegroundColor Yellow
+        $Response = Read-Host "Would you like to install/configure Visual Studio 2022 Build Tools now? (y/n)"
+        if ($Response -eq 'y' -or $Response -eq 'Y') {
+            $VSSelectionAction = "InstallNew"
+        } else {
+            $VSSelectionAction = "Skip"
+            Write-Host "Skipping Visual Studio configuration. You will need to manually configure compiler settings." -ForegroundColor Yellow
+        }
     }
 }
 
@@ -216,7 +249,7 @@ if ($InstallGit) {
         winget install --id Git.Git --accept-package-agreements --accept-source-agreements --exact
     } else {
         Write-Host "[ERROR] winget is not available on this system. Are you even using Windows?" -ForegroundColor Red
-        pause
+        if (-not $CI) { pause }
         exit 1
     }
     
@@ -258,7 +291,6 @@ elseif ($VSSelectionAction -eq "ModifyExisting") {
     $FinalVSPath = $SelectedVSPath
 } 
 elseif ($VSSelectionAction -eq "InstallNew") {
-    # Always use bootstrapper to install because it's fast and simple
     Write-Host "Installing fresh Visual Studio 2022 Build Tools via bootstrapper..." -ForegroundColor Cyan
     
     Write-Host "Downloading official Visual Studio 2022 Build Tools bootstrapper..." -ForegroundColor Yellow
@@ -269,7 +301,6 @@ elseif ($VSSelectionAction -eq "InstallNew") {
     $Proc = Start-Process $BootstrapperPath -ArgumentList "--productId Microsoft.VisualStudio.Product.BuildTools --passive --norestart --wait --config `"$VsConfigFile`"" -Wait -PassThru
     Remove-Item $BootstrapperPath -ErrorAction SilentlyContinue
     
-    # Get installation directory path using vswhere.exe (our good friend)
     if (Test-Path $VsWherePath) {
         $FinalVSPath = & $VsWherePath -latest -products * -property installationPath
     }
@@ -285,7 +316,6 @@ elseif ($VSSelectionAction -eq "InstallNew") {
 if ($VSSelectionAction -ne "Skip" -and $FinalVSPath) {
     Write-Host "Verifying component registration for: $FinalVSPath" -ForegroundColor Yellow
     if (Test-Path $VsWherePath) {
-        # Get satisfying installations again to check if our hard work payed off
         $RequiresArgs = @("-prerelease", "-products", "*")
         foreach ($Comp in $RequiredComponents) {
             $RequiresArgs += "-requires"
@@ -295,12 +325,11 @@ if ($VSSelectionAction -ne "Skip" -and $FinalVSPath) {
         
         $SatisfyingDirs = & $VsWherePath $RequiresArgs
         
-        # Check if $FinalVSPath exists in the list of satisfying directories
         $IsVerified = $false
         if ($SatisfyingDirs) {
             foreach ($SatDir in $SatisfyingDirs) {
                 if ($SatDir.Trim().ToLower() -eq $FinalVSPath.Trim().ToLower()) {
-                    $IsVerified = $true # Yess! Finally!
+                    $IsVerified = $true
                     break
                 }
             }
@@ -319,8 +348,6 @@ if ($VSSelectionAction -ne "Skip" -and $FinalVSPath) {
 }
 
 # --- 2.4 Set up vcpkg ---
-
-# Initialize vcpkg using the built-in bootstrap script
 $VcpkgPath = Join-Path $ProjectRoot "vcpkg"
 $VCPKG_ROOT = $VcpkgPath
 $BootstrapScript = Join-Path $VcpkgPath "bootstrap-vcpkg.bat"
@@ -336,7 +363,6 @@ if (Test-Path $VcpkgJsonPath) {
 
     & $VcpkgExe install --triplet x64-windows --x-manifest-root="$ProjectRoot"
 
-    # Verify Ninja installation
     $NinjaDir = Split-Path -Path (& $VcpkgExe fetch ninja)
     if (Test-Path (Join-Path $NinjaDir "ninja.exe")) {
         Write-Host "Ninja verified from manifest at: $NinjaDir" -ForegroundColor Green
@@ -353,7 +379,6 @@ if (Test-Path $VcpkgJsonPath) {
 $VsConfigPs1 = Join-Path $ScriptDir "run-env.ps1"
 $CurrentDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
-# Build run-env.ps1 to a basic script but with static path variables
 $ConfigLines = @(
     "# ==============================================================================",
     "# AUTOGENERATED BY SETUP.PS1 SO DO NOT TOUCH OR IT WILL BREAK.",
@@ -380,7 +405,7 @@ if ($FinalVSPath) {
     $ConfigLines += 'Write-Host "Loading MSVC compiler environment..." -ForegroundColor Yellow'
     $ConfigLines += '  $CmdLine = ''"'' + $VcvarsBat + ''" x64 && set'''
     $ConfigLines += '  $Vars = cmd.exe /c $CmdLine'
-    $ConfigLines += 'foreach ($Var in $Vars) {'
+    $ConfigLines += 'foreach ($Var in $Vars) {`'
     $ConfigLines += '    if ($Var -match ''^([^=]+)=(.*)$'') {'
     $ConfigLines += '        $Name = $Matches[1]'
     $ConfigLines += '        $Value = $Matches[2]'
@@ -406,7 +431,6 @@ $ConfigLines += 'function prompt {'
 $ConfigLines += '    "(CMake) $pwd> "'
 $ConfigLines += '}'
 
-# Output with UTF-8 encoding
 if ($ConfigLines.Count -gt 0) {
     Set-Content -Path $VsConfigPs1 -Value $ConfigLines -Encoding UTF8
     Write-Host "Saved autogenerated configuration to: $VsConfigPs1" -ForegroundColor Green
@@ -417,10 +441,12 @@ if ($ScriptErrorCount -gt 0) {
 } else {
     Write-Host ""
     Write-Host "=========================================" -ForegroundColor Green
-    Write-Host "         Yey! Setup complete!            " -ForegroundColor Green
+    Write-Host "        Yey! Setup complete!            " -ForegroundColor Green
     Write-Host " You can now configure and build using CMake presets." -ForegroundColor Green
     Write-Host "=========================================" -ForegroundColor Green
-
 }
 
-pause
+# Only pause if we are NOT running in CI mode
+if (-not $CI) {
+    pause
+}

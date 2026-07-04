@@ -84,7 +84,7 @@ jobs:
         shell: powershell
         run: |
           Set-ExecutionPolicy Bypass -Scope Process -Force
-          .\\scripts\\setup.ps1
+          .\\scripts\\setup.ps1 -CI
 
       - name: Source run-env.ps1
         shell: powershell
