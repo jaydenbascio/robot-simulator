@@ -11,24 +11,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ubuntu-lint-build:
+  ubuntu-lint:
     name: Ubuntu Lint & Doxygen
     runs-on: ubuntu-latest
     env:
-      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite" # Cache already installed packages
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: true
-
-      - name: Cache vcpkg
-        uses: actions/cache@v4
-        with:
-          path: vcpkg_installed
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg-configuration.json') }}
-          restore-keys: |
-            vcpkg-${{ runner.os }}-
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
@@ -37,9 +29,9 @@ jobs:
 
       - name: Run Clang-Format Check
         shell: bash
+        # FIXED: Corrected the regex to escape the dot properly in a literal block
         run: |
-          git ls-files | grep -E '\\.(cpp|h|hpp)$' | xargs clang-format --dry-run --Werror
-        continue-on-error: true
+          git ls-files | grep -E '\.(cpp|h|hpp)$' | xargs clang-format --dry-run --Werror
 
       - name: Run Doxygen Validation
         uses: mattnotmitt/doxygen-action@v1.12.0
@@ -57,14 +49,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: true
-
-      - name: Cache vcpkg (Windows)
-        uses: actions/cache@v4
-        with:
-          path: vcpkg_installed
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg-configuration.json') }}
-          restore-keys: |
-            vcpkg-${{ runner.os }}-
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
@@ -89,3 +73,4 @@ jobs:
 
       - name: Test (Debug)
         run: ctest --preset debug-test
+        
