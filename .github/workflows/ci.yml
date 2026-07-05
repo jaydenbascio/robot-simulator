@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   ubuntu-lint-build:
-    name: Ubuntu Lint & Build
+    name: Ubuntu Lint & Doxygen
     runs-on: ubuntu-latest
     env:
       VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite" # Cache already installed packages
@@ -71,23 +71,21 @@ jobs:
         with:
           vcpkgGitCommitId: d87340acc46bdeda386037b38aca30136e667e47
 
-      - name: Generate run-env.ps1
+      - name: Install toolchain & build (setupc.ps1)
         shell: powershell
         run: |
           Set-ExecutionPolicy Bypass -Scope Process -Force
-          .\\scripts\\setup.ps1 -CI
+          .\scripts\setupc.ps1 -RepoRoot "${{ github.workspace }}" -CI
 
-      - name: Source run-env.ps1
+      - name: Propagate installed toolchain PATH
         shell: powershell
         run: |
-          Set-ExecutionPolicy Bypass -Scope Process -Force
-          .\\scripts\\run-env.ps1
+          $machinePath = [Environment]::GetEnvironmentVariable('Path','Machine')
+          $userPath    = [Environment]::GetEnvironmentVariable('Path','User')
+          ($machinePath -split ';') + ($userPath -split ';') |
+            Where-Object { $_ -and (Test-Path $_) } |
+            Select-Object -Unique |
+            Add-Content -Path $env:GITHUB_PATH
 
-      - name: Configure Release (MSVC/Ninja)
-        run: cmake --preset debug
-
-      - name: Build Release (MSVC)
-        run: cmake --build --preset debug-build
-
-      - name: Test Release (MSVC)
+      - name: Test (Debug)
         run: ctest --preset debug-test
