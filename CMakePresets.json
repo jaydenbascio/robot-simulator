@@ -6,20 +6,20 @@
       "hidden": true,
       "description": "Sets up vcpkg toolchain and Ninja generator",
       "generator": "Ninja",
-      "architecture": {
-        "value": "x64",
-        "strategy": "external"
-      },
-      "toolset": {
-        "value": "host=x64",
-        "strategy": "external"
-      },
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
         "CMAKE_TOOLCHAIN_FILE": {
           "type": "FILEPATH",
           "value": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake"
-        }
+        },
+		"VCPKG_TARGET_TRIPLET": "x64-mingw-static",
+		"VCPKG_HOST_TRIPLET": "x64-mingw-static",
+		"VCPKG_CHAINLOAD_TOOLCHAIN_FILE": {
+			"type": "FILEPATH",
+			"value": "${sourceDir}/vcpkg/scripts/toolchains/mingw.cmake"
+		},
+		"VCPKG_TARGET_ARCHITECTURE": "x64",
+		"VCPKG_CRT_LINKAGE": "dynamic"
       }
     },
     {
