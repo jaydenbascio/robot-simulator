@@ -31,7 +31,7 @@
     software. Silently locates an existing local clone (or a setupc.ps1
     placed next to this script for troubleshooting) and hands off from there.
 
-.PARAMETER CI
+.PARAMETER dashci
     Fully unattended mode: no interactive prompts anywhere. Directory
     selection uses the same logic as normal, just without asking - it looks
     for an existing local clone (current/script directory, then common dev
@@ -43,7 +43,7 @@
         powershell -ExecutionPolicy Bypass -File .\setup.ps1
         powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Debug
         powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Uninstall
-        powershell -ExecutionPolicy Bypass -File .\setup.ps1 -CI
+        powershell -ExecutionPolicy Bypass -File .\setup.ps1 -dashci
 #>
 
 # NOTE: no [CmdletBinding()] on purpose, so -Debug binds to our own switch.
@@ -53,7 +53,7 @@ param(
     [string] $ClonePath,
     [switch] $Debug,
     [switch] $Uninstall,
-    [switch] $CI
+    [switch] $dashci
 )
 
 $ErrorActionPreference = 'Stop'
@@ -231,7 +231,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     if ($ClonePath)        { $elevateArgs += @('-ClonePath', "`"$ClonePath`"") }
     if ($script:DebugMode) { $elevateArgs += '-Debug' }
     if ($Uninstall)        { $elevateArgs += '-Uninstall' }
-    if ($CI)               { $elevateArgs += '-CI' }
+    if ($dashci)               { $elevateArgs += '-dashci' }
     try {
         $proc = Start-Process -FilePath (Get-Process -Id $PID).Path -Verb RunAs -ArgumentList $elevateArgs -PassThru -Wait
     } catch { Fail 'Elevation was declined. Re-run from an Administrator PowerShell.' }
@@ -240,8 +240,8 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     # is not enough when this script was launched via "Run with PowerShell" or
     # a shortcut using -NoExit - those keep the host process (and its window)
     # alive after the script returns, leaving a stale idle prompt behind.
-    # -CI never waits on a prompt, even combined with -Debug.
-    if ($script:DebugMode -and -not $CI) {
+    # -dashci never waits on a prompt, even combined with -Debug.
+    if ($script:DebugMode -and -not $dashci) {
         Write-Host "`n[debug] Elevated window finished (exit $($proc.ExitCode)). Press Enter to close this original window..." -ForegroundColor DarkGray
         [void](Read-Host)
         exit $proc.ExitCode
@@ -286,7 +286,7 @@ function Test-IsMatchingClone {
     return (Get-NormalizedRepoUrl $origin) -eq (Get-NormalizedRepoUrl $RepositoryUrl)
 }
 
-# -CI's directory logic, deliberately narrow (unlike Find-ExistingClone's
+# -dashci's directory logic, deliberately narrow (unlike Find-ExistingClone's
 # broader search below, used by the interactive/uninstall paths): check only
 # (1) the directory this script runs from (or a $RepositoryName subfolder in
 # it), then (2) the Documents folder (or a $RepositoryName subfolder in it).
@@ -405,7 +405,7 @@ if ($Uninstall) {
 else {
     Write-Info 'Repository location'
 
-    if ($CI) {
+    if ($dashci) {
         # Narrow, no-prompt directory logic: check the script's own
         # directory, then Documents. If neither has a matching clone,
         # silently create one in Documents. See Find-ExistingCloneForCI.
@@ -562,13 +562,13 @@ $hostExe = (Get-Process -Id $PID).Path
 $argList = @('-ExecutionPolicy','Bypass','-NoProfile','-File',"`"$repoSetup`"",'-RepoRoot',"`"$targetDir`"")
 if ($script:DebugMode) { $argList += '-Debug' }
 if ($Uninstall)        { $argList += '-Uninstall' }
-if ($CI)               { $argList += '-CI' }
+if ($dashci)               { $argList += '-dashci' }
 Write-Debug2 ("launch: {0} {1}" -f $hostExe, ($argList -join ' '))
 Start-Process -FilePath $hostExe -ArgumentList $argList
 
 Write-Host "Installer launched in a new window. Closing this one." -ForegroundColor Green
 
-if ($script:DebugMode -and -not $CI) {
+if ($script:DebugMode -and -not $dashci) {
     Write-Host "`n[debug] Press Enter to close this bootstrap window..." -ForegroundColor DarkGray
     [void](Read-Host)
     exit 0
