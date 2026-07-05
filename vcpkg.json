@@ -3,10 +3,6 @@
   "version-string": "1.0.0",
   "dependencies": [
     "catch2",
-    "sdl3",
-    {
-      "name": "vcpkg-tool-ninja",
-      "host": true
-    }
+    "sdl3"
   ]
 }
