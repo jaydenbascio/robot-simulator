@@ -240,6 +240,74 @@ function Find-VSCodeExe {
     return $null
 }
 
+# Launches VS Code, then toggles its native Full Screen mode (the same F11
+# a user would press - View > Appearance > Full Screen). VS Code's CLI has
+# no --fullscreen flag, so this drives it via the actual keystroke.
+#
+# Verified empirically (not just assumed) end to end on a real machine:
+#   - code.cmd/code is just a launcher that spawns the real Code.exe and
+#     exits immediately, so this polls briefly for that real GUI process.
+#   - SetForegroundWindow alone is unreliable from a script - Windows'
+#     foreground-lock restriction can silently no-op it - so this first
+#     does the classic fake-ALT-keypress workaround to reset that lock.
+#   - Even with confirmed focus, VS Code (Electron) isn't immediately ready
+#     to process synthetic key input the instant its window appears; without
+#     an extra settle delay here, F11 was reliably swallowed. 3 seconds was
+#     confirmed sufficient in testing (window went from title-barred/windowed
+#     to exactly the full screen resolution, borders included).
+# Best effort throughout: if any step fails, VS Code still opens normally,
+# just not full-screen.
+function Open-VSCodeFullScreen {
+    param([string] $CodeExe, [string] $RepoRoot, [string] $ReadmePath)
+
+    # Direct invocation, not Start-Process: code.cmd is a batch launcher, and
+    # Start-Process spawning it opens its own brief but visible console
+    # window ("black box") before it hands off to the real Code.exe. Calling
+    # it directly runs it inline in this process's own console instead - no
+    # extra window. Confirmed: returns in ~1s once it hands off (this is
+    # code.cmd's own launcher process exiting, not the GUI closing).
+    & $CodeExe $RepoRoot $ReadmePath
+
+    try {
+        Add-Type -AssemblyName System.Windows.Forms
+        if (-not ('Native.Win32' -as [type])) {
+            Add-Type -Namespace Native -Name Win32 -MemberDefinition @'
+                [DllImport("user32.dll")] public static extern bool SetForegroundWindow(System.IntPtr hWnd);
+                [DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr hWnd, int nCmdShow);
+                [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, System.UIntPtr dwExtraInfo);
+'@
+        }
+    }
+    catch {
+        Write-Debug2 "could not load Win32 window helpers: $($_.Exception.Message)"
+        return
+    }
+
+    $codeProc = $null
+    for ($i = 0; $i -lt 20; $i++) {
+        Start-Sleep -Milliseconds 300
+        $codeProc = Get-Process -Name 'Code' -ErrorAction SilentlyContinue |
+            Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | Select-Object -First 1
+        if ($codeProc) { break }
+    }
+    if (-not $codeProc) {
+        Write-Debug2 "could not locate the VS Code window to toggle full screen"
+        return
+    }
+
+    # Let the Electron renderer finish initializing before we touch it.
+    Start-Sleep -Seconds 3
+
+    [Native.Win32]::ShowWindow($codeProc.MainWindowHandle, 9) | Out-Null   # SW_RESTORE, in case it started minimized
+    # Fake ALT keypress resets Windows' foreground-lock timer, without which
+    # SetForegroundWindow can silently fail when called from a background script.
+    [Native.Win32]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)               # ALT down
+    [Native.Win32]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)               # ALT up
+    [Native.Win32]::SetForegroundWindow($codeProc.MainWindowHandle) | Out-Null
+    Start-Sleep -Milliseconds 500
+    [System.Windows.Forms.SendKeys]::SendWait('{F11}')
+}
+
 # The standard Chocolatey msys2 package install root. Chocolatey's own
 # $env:ChocolateyToolsLocation (default C:\tools) is where msys64 lands.
 function Get-Msys2Root {
@@ -775,8 +843,8 @@ if (-not $CI) {
         $codeExe = Find-VSCodeExe
         if ($codeExe) {
             Write-Host ''
-            Write-Host 'Opening the project in VS Code...' -ForegroundColor Green
-            Start-Process -FilePath $codeExe -ArgumentList @("`"$RepoRoot`"", "`"$ReadmePath`"")
+            Write-Host 'Opening the project in VS Code (full screen)...' -ForegroundColor Green
+            Open-VSCodeFullScreen -CodeExe $codeExe -RepoRoot $RepoRoot -ReadmePath $ReadmePath
         }
         else {
             Write-Warn2 "VS Code was not found on PATH or in common install locations. README.md was NOT opened automatically."

@@ -286,6 +286,30 @@ function Test-IsMatchingClone {
     return (Get-NormalizedRepoUrl $origin) -eq (Get-NormalizedRepoUrl $RepositoryUrl)
 }
 
+# -CI's directory logic, deliberately narrow (unlike Find-ExistingClone's
+# broader search below, used by the interactive/uninstall paths): check only
+# (1) the directory this script runs from (or a $RepositoryName subfolder in
+# it), then (2) the Documents folder (or a $RepositoryName subfolder in it).
+# If neither has a matching clone, the caller creates a fresh one in
+# Documents - no other locations, no prompts.
+function Find-ExistingCloneForCI {
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($PSScriptRoot) {
+        $candidates.Add($PSScriptRoot)
+        $candidates.Add((Join-Path $PSScriptRoot $RepositoryName))
+    }
+    $docs = [Environment]::GetFolderPath('MyDocuments')
+    $candidates.Add($docs)
+    $candidates.Add((Join-Path $docs $RepositoryName))
+
+    foreach ($c in $candidates) {
+        if (-not $c) { continue }
+        Write-Debug2 "checking candidate (CI): $c"
+        if ((Test-Path $c) -and (Test-IsMatchingClone $c)) { return $c }
+    }
+    return $null
+}
+
 # Searches the current directory and common user dev folders for an existing
 # clone of this repository, so we don't clone a fresh copy the user already has.
 function Find-ExistingClone {
@@ -382,24 +406,23 @@ else {
     Write-Info 'Repository location'
 
     if ($CI) {
-        # Same directory logic as the interactive path below, minus the
-        # prompts: look for an existing clone (current/script dir, then
-        # common dev folders including Documents), and if nothing is found,
-        # silently default to Documents with no confirmation.
+        # Narrow, no-prompt directory logic: check the script's own
+        # directory, then Documents. If neither has a matching clone,
+        # silently create one in Documents. See Find-ExistingCloneForCI.
         Write-StatusLine -Component 'Repository' -Status 'locating (CI - no prompts)...'
 
         if ($ClonePath) {
             $parentDir = $ClonePath
         }
         else {
-            $existing = Find-ExistingClone
+            $existing = Find-ExistingCloneForCI
             if ($existing) {
                 $targetDir = $existing
                 Write-StatusLine -Component 'Repository' -Status ("found existing clone: {0}" -f $existing) -Kind ok -Final
             }
             else {
                 $parentDir = $defaultParent
-                Write-StatusLine -Component 'Repository' -Status ("no existing clone found, using default: {0}" -f $defaultParent) -Kind ok -Final
+                Write-StatusLine -Component 'Repository' -Status ("no existing clone found, creating in: {0}" -f $defaultParent) -Kind ok -Final
             }
         }
     }
