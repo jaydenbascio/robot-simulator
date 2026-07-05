@@ -33,7 +33,7 @@
     regardless of what Chocolatey's own bookkeeping reports, since its
     install directory can outlive Chocolatey's record of it.
 
-.PARAMETER CI
+.PARAMETER dashci
     Fully unattended: never waits on a Read-Host prompt (even combined with
     -Debug), and never opens README.md/VS Code. Everything else (install,
     verify, and - on success - the project build) still runs the same as an
@@ -46,7 +46,7 @@
         powershell -ExecutionPolicy Bypass -File .\setupc.ps1 -Debug
         powershell -ExecutionPolicy Bypass -File .\setupc.ps1 -Uninstall
         powershell -ExecutionPolicy Bypass -File .\setupc.ps1 -Uninstall -Debug
-        powershell -ExecutionPolicy Bypass -File .\setupc.ps1 -CI
+        powershell -ExecutionPolicy Bypass -File .\setupc.ps1 -dashci
 #>
 
 # NOTE: no [CmdletBinding()] on purpose, so that -Debug binds to our own switch
@@ -55,7 +55,7 @@ param(
     [string] $RepoRoot,
     [switch] $Debug,
     [switch] $Uninstall,
-    [switch] $CI
+    [switch] $dashci
 )
 
 $ErrorActionPreference = 'Stop'
@@ -687,7 +687,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     $argList = @('-ExecutionPolicy','Bypass','-NoProfile','-File',"`"$PSCommandPath`"",'-RepoRoot',"`"$RepoRoot`"")
     if ($script:DebugMode) { $argList += '-Debug' }
     if ($Uninstall)        { $argList += '-Uninstall' }
-    if ($CI)               { $argList += '-CI' }
+    if ($dashci)               { $argList += '-dashci' }
     try {
         $proc = Start-Process -FilePath (Get-Process -Id $PID).Path -Verb RunAs -ArgumentList $argList -PassThru -Wait
     } catch { Fail 'Elevation was declined. Re-run from an Administrator PowerShell.' }
@@ -696,8 +696,8 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     # is not enough when this script was launched via "Run with PowerShell" or
     # a shortcut using -NoExit - those keep the host process (and its window)
     # alive after the script returns, leaving a stale idle prompt behind.
-    # -CI never waits on a prompt, even combined with -Debug.
-    if ($script:DebugMode -and -not $CI) {
+    # -dashci never waits on a prompt, even combined with -Debug.
+    if ($script:DebugMode -and -not $dashci) {
         Write-Host "`n[debug] Elevated window finished (exit $($proc.ExitCode)). Press Enter to close this original window..." -ForegroundColor DarkGray
         [void](Read-Host)
         exit $proc.ExitCode
@@ -764,7 +764,7 @@ if ($Uninstall) {
         Write-Host '[+] All toolchain components removed (or were already absent).' -ForegroundColor Green
     }
 
-    if ($script:DebugMode -and -not $CI) {
+    if ($script:DebugMode -and -not $dashci) {
         Write-Host ''
         Write-Host '[debug] Leaving window open. Press Enter to close...' -ForegroundColor DarkGray
         [void](Read-Host)
@@ -835,9 +835,9 @@ else {
     if (-not $script:DebugMode) { Write-Host 'Re-run with -Debug for full troubleshooting detail.' -ForegroundColor Yellow }
 }
 
-# ---- 5. Open README (unless -CI), then build the project --------------
-# -CI is fully hands-off: never opens an editor.
-if (-not $CI) {
+# ---- 5. Open README (unless -dashci), then build the project --------------
+# -dashci is fully hands-off: never opens an editor.
+if (-not $dashci) {
     Update-SessionPath
     if (Test-Path $ReadmePath) {
         $codeExe = Find-VSCodeExe
@@ -880,7 +880,7 @@ if ($success -and (Test-Path $presetsFile)) {
     }
 }
 
-if ($CI) {
+if ($dashci) {
     exit $(if ($success -and $buildOk) { 0 } else { 1 })
 }
 
