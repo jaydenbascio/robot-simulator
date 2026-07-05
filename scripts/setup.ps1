@@ -1,10 +1,10 @@
 # setup.ps1 - Bootstrap (Step 1/2, runs standalone from Downloads): install Git via
 # winget, clone the repo, hand off to <repo>\scripts\setupc.ps1. See AGENTS.md.
-# -ClonePath <dir> | -Uninstall | -dashci.
+# -ClonePath <dir> | -Uninstall | -ci.
 param(
     [string] $ClonePath,
     [switch] $Uninstall,
-    [switch] $dashci
+    [switch] $ci
 )
 
 $ErrorActionPreference = 'Stop'
@@ -77,7 +77,7 @@ function Test-IsMatchingClone { param([string] $Path)
     (Get-NormalizedRepoUrl $origin) -eq (Get-NormalizedRepoUrl $RepositoryUrl)
 }
 
-# -dashci's narrow search: script dir (+RepositoryName subfolder), then Documents (+subfolder). No prompts.
+# -ci's narrow search: script dir (+RepositoryName subfolder), then Documents (+subfolder). No prompts.
 function Find-ExistingCloneForCI {
     $candidates = New-Object System.Collections.Generic.List[string]
     if ($PSScriptRoot) { $candidates.Add($PSScriptRoot); $candidates.Add((Join-Path $PSScriptRoot $RepositoryName)) }
@@ -150,7 +150,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     $elevateArgs = @('-ExecutionPolicy','Bypass','-NoProfile','-File',"`"$PSCommandPath`"")
     if ($ClonePath) { $elevateArgs += @('-ClonePath', "`"$ClonePath`"") }
     if ($Uninstall) { $elevateArgs += '-Uninstall' }
-    if ($dashci)    { $elevateArgs += '-dashci' }
+    if ($ci)    { $elevateArgs += '-ci' }
     try { Start-Process -FilePath (Get-Process -Id $PID).Path -Verb RunAs -ArgumentList $elevateArgs -Wait }
     catch { Fail 'Elevation was declined. Re-run from an Administrator PowerShell.' }
     # Force-close the original pre-elevation window (plain exit leaves -NoExit hosts alive).
@@ -175,7 +175,7 @@ if ($Uninstall) {
 }
 else {
     Write-Info 'Repository location'
-    if ($dashci) {
+    if ($ci) {
         # Narrow, no-prompt: script dir then Documents; else silently clone into Documents. See Find-ExistingCloneForCI.
         if ($ClonePath) { $parentDir = $ClonePath }
         else {
@@ -253,7 +253,7 @@ else { Fail "Could not find setupc.ps1 next to setup.ps1 or in the repository's 
 $hostExe = (Get-Process -Id $PID).Path
 $argList = @('-ExecutionPolicy','Bypass','-NoProfile','-File',"`"$repoSetup`"",'-RepoRoot',"`"$targetDir`"")
 if ($Uninstall) { $argList += '-Uninstall' }
-if ($dashci)    { $argList += '-dashci' }
+if ($ci)    { $argList += '-ci' }
 Start-Process -FilePath $hostExe -ArgumentList $argList
 
 # Only auto-close this window if the run was error-free; otherwise hold it so the warnings stay readable.

@@ -1,10 +1,7 @@
-# setupc.ps1 - Toolchain installer (Step 2/2, lives in <repo>\scripts\): install
-# packages.config via Chocolatey, refresh PATH, open README + build. Self-elevates. See AGENTS.md.
-# -RepoRoot <dir> | -Uninstall | -dashci.
 param(
     [string] $RepoRoot,
     [switch] $Uninstall,
-    [switch] $dashci
+    [switch] $ci
 )
 
 $ErrorActionPreference = 'Stop'
@@ -67,7 +64,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     Write-Warn2 'Administrator rights required. Relaunching elevated...'
     $argList = @('-ExecutionPolicy','Bypass','-NoProfile','-File',"`"$PSCommandPath`"",'-RepoRoot',"`"$RepoRoot`"")
     if ($Uninstall) { $argList += '-Uninstall' }
-    if ($dashci)    { $argList += '-dashci' }
+    if ($ci)    { $argList += '-ci' }
     try { Start-Process -FilePath (Get-Process -Id $PID).Path -Verb RunAs -ArgumentList $argList -Wait }
     catch { Fail 'Elevation was declined. Re-run from an Administrator PowerShell.' }
     Stop-Process -Id $PID -Force
@@ -83,7 +80,7 @@ if ($Uninstall) {
 
     if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
         Write-Warn2 'Chocolatey is not installed - nothing to uninstall.'
-        if (-not $dashci) { Write-Host ''; Write-Host 'Closing this window...' -ForegroundColor Green; Start-Sleep -Seconds 2 }
+        if (-not $ci) { Write-Host ''; Write-Host 'Closing this window...' -ForegroundColor Green; Start-Sleep -Seconds 2 }
         exit 0
     }
 
@@ -116,11 +113,11 @@ if ($Uninstall) {
     if ($anyFail) {
         Write-Host '[x] Some packages did not uninstall cleanly - see Chocolatey output above.' -ForegroundColor Red
         # Not error-free: hold the window open so the failures stay readable.
-        if (-not $dashci -and $Host.Name -eq 'ConsoleHost') { Write-Host ''; Write-Host 'Press Enter to close...' -ForegroundColor DarkGray; [void](Read-Host) }
+        if (-not $ci -and $Host.Name -eq 'ConsoleHost') { Write-Host ''; Write-Host 'Press Enter to close...' -ForegroundColor DarkGray; [void](Read-Host) }
     }
     else {
         Write-Ok 'All toolchain packages removed (or were already absent).'
-        if (-not $dashci) { Write-Host ''; Write-Host 'Closing this window...' -ForegroundColor Green; Start-Sleep -Seconds 2 }
+        if (-not $ci) { Write-Host ''; Write-Host 'Closing this window...' -ForegroundColor Green; Start-Sleep -Seconds 2 }
     }
     exit $(if ($anyFail) { 1 } else { 0 })
 }
@@ -159,8 +156,8 @@ else {
     Write-Host 'A reboot may be needed for PATH changes to take effect; re-run setupc.ps1 afterwards.' -ForegroundColor Yellow
 }
 
-# ---- 4. Open README in VS Code (unless -dashci). Start-Process detaches so this shell returns to a prompt. ----
-if (-not $dashci) {
+# ---- 4. Open README in VS Code (unless -ci). Start-Process detaches so this shell returns to a prompt. ----
+if (-not $ci) {
     if (Test-Path $ReadmePath) {
         $code = Get-Command code -ErrorAction SilentlyContinue
         if (-not $code) { $code = Get-Command code.cmd -ErrorAction SilentlyContinue }
@@ -218,7 +215,7 @@ if ($success -and (Test-Path $presetsFile)) {
     finally { Pop-Location }
 }
 
-if ($dashci) { exit $(if ($success -and $buildOk) { 0 } else { 1 }) }
+if ($ci) { exit $(if ($success -and $buildOk) { 0 } else { 1 }) }
 
 # Interactive runs: only auto-close if error-free. On any issue, hold the window so the output stays readable.
 Write-Host ''
