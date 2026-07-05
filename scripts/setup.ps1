@@ -3,14 +3,21 @@
     Bootstrap setup script (setup.ps1) - Step 1 of 2.
 
 .DESCRIPTION
-    Downloaded and run on its own (lives OUTSIDE the repository). It:
+    Downloaded and run on its own (lives in Downloads, OUTSIDE the
+    repository - never moves into the repo, since its job is cloning the
+    repo before it exists). It:
 
         1. Ensures Git is installed (via winget) with a staged status UI:
            checking -> installing -> verifying -> installed vX.
         2. Asks where to clone (defaults to the Documents folder); N opens a
            folder picker.
-        3. Clones https://github.com/jaydenbascio/robot-simulator, then launches
-           the repo's setupc.ps1 in a new window and closes this one.
+        3. Clones https://github.com/jaydenbascio/robot-simulator, then
+           launches the repo's scripts\setupc.ps1 in a new window and
+           closes this one.
+
+    Canonical repo layout this script expects after cloning:
+        <repo>\scripts\setupc.ps1    (this hands off to it)
+        <repo>\packages.config       (read by setupc.ps1, at the repo root)
 
 .PARAMETER Debug
     Verbose troubleshooting mode: full paths/variables printed, installers run
@@ -509,12 +516,14 @@ else {
 }
 
 # ---- 4. Hand off to setupc.ps1, then close this window --------------
-# For local troubleshooting: if a setupc.ps1 sits next to THIS script, prefer
-# it over the one in the cloned repo. The repo is still passed as -RepoRoot so
-# the README (and, unless overridden, packages.config) come from the clone.
+# Canonical layout: setupc.ps1 lives in <repo>\scripts\, packages.config at
+# the repo root. For local troubleshooting: if a setupc.ps1 sits next to
+# THIS script (in Downloads), prefer it over the one in the cloned repo.
+# The repo is still passed as -RepoRoot so the README (and, unless
+# overridden, packages.config) come from the clone's actual root.
 Write-Info 'Handing off to the project installer...'
 $localSetup = if ($PSScriptRoot) { Join-Path $PSScriptRoot 'setupc.ps1' } else { $null }
-$repoSetupc = Join-Path $targetDir 'setupc.ps1'
+$repoSetupc = Join-Path $targetDir 'scripts\setupc.ps1'
 if ($localSetup -and (Test-Path $localSetup)) {
     $repoSetup = $localSetup
     Write-Warn2 "Using local setupc.ps1 next to setup.ps1 (troubleshooting): $repoSetup"
@@ -523,7 +532,7 @@ elseif (Test-Path $repoSetupc) {
     $repoSetup = $repoSetupc
 }
 else {
-    Fail "Could not find setupc.ps1 next to setup.ps1 or in the repository at '$repoSetupc'."
+    Fail "Could not find setupc.ps1 next to setup.ps1 or in the repository's scripts folder at '$repoSetupc'."
 }
 
 $hostExe = (Get-Process -Id $PID).Path

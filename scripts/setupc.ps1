@@ -4,7 +4,10 @@
 
 .DESCRIPTION
     Step 2 of a two-step install process. Launched by the downloaded bootstrap
-    (setup.ps1) after the repository is cloned; can also be run directly.
+    (setup.ps1, which lives in Downloads) after the repository is cloned; can
+    also be run directly. Canonical layout: this script lives in
+    <repo>\scripts\setupc.ps1, and packages.config lives at the repo root
+    (<repo>\packages.config) - one level up from this script.
 
     It installs the toolchain declared in <repo>\packages.config with
     Chocolatey, presenting a clean per-component status UI:
@@ -26,7 +29,15 @@
     Instead of installing, uninstalls every package listed in packages.config
     via Chocolatey (does not touch Chocolatey itself). Does not open the
     README. If Chocolatey isn't installed, there is nothing to do and the
-    script exits immediately.
+    script exits immediately. MSYS2 (if listed) is force-cleaned afterward
+    regardless of what Chocolatey's own bookkeeping reports, since its
+    install directory can outlive Chocolatey's record of it.
+
+.PARAMETER CI
+    Fully unattended: never waits on a Read-Host prompt (even combined with
+    -Debug), and never opens README.md/VS Code. Everything else (install,
+    verify, and - on success - the project build) still runs the same as an
+    interactive run.
 
 .NOTES
     Requires an elevated (Administrator) PowerShell; self-elevates if needed.
@@ -35,6 +46,7 @@
         powershell -ExecutionPolicy Bypass -File .\setupc.ps1 -Debug
         powershell -ExecutionPolicy Bypass -File .\setupc.ps1 -Uninstall
         powershell -ExecutionPolicy Bypass -File .\setupc.ps1 -Uninstall -Debug
+        powershell -ExecutionPolicy Bypass -File .\setupc.ps1 -CI
 #>
 
 # NOTE: no [CmdletBinding()] on purpose, so that -Debug binds to our own switch
@@ -42,7 +54,8 @@
 param(
     [string] $RepoRoot,
     [switch] $Debug,
-    [switch] $Uninstall
+    [switch] $Uninstall,
+    [switch] $CI
 )
 
 $ErrorActionPreference = 'Stop'
@@ -137,6 +150,15 @@ function Invoke-Managed {
     $psi.RedirectStandardError  = $true
     $psi.UseShellExecute        = $false
     $psi.CreateNoWindow         = $true
+    # CreateNoWindow only suppresses a CONSOLE window - it has no effect on
+    # GUI-subsystem executables (e.g. an Inno Setup unins000.exe). WindowStyle
+    # is passed through as an initial "start hidden" hint, but NOTE: tested
+    # empirically against a real Win32 GUI app (charmap.exe) and confirmed
+    # this hint does NOT reliably suppress a window the target app explicitly
+    # calls ShowWindow() for - it's a best-effort addition, not a guarantee.
+    # The actual, reliable suppression for Inno Setup uninstallers has to
+    # come from the target's OWN silent flag (/VERYSILENT) - see callers.
+    $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
 
     $proc = New-Object System.Diagnostics.Process
     $proc.StartInfo = $psi
@@ -244,6 +266,20 @@ function Add-MachinePathEntry {
     Write-Debug2 "added to machine PATH: $Directory"
 }
 
+# The uninstall counterpart to Add-MachinePathEntry. Idempotent.
+function Remove-MachinePathEntry {
+    param([string] $Directory)
+    $machinePath = [System.Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $parts = $machinePath -split ';' | Where-Object { $_ }
+    if ($parts -notcontains $Directory) {
+        Write-Debug2 "not on machine PATH (nothing to remove): $Directory"
+        return
+    }
+    $newParts = $parts | Where-Object { $_ -ne $Directory }
+    [System.Environment]::SetEnvironmentVariable('Path', ($newParts -join ';'), 'Machine')
+    Write-Debug2 "removed from machine PATH: $Directory"
+}
+
 # Rebuilds this session's PATH from the registry (Machine + User) plus known
 # toolchain bin folders, so freshly installed apps resolve immediately.
 function Update-SessionPath {
@@ -334,8 +370,14 @@ function Install-Component {
         # do a clean install once before giving up.
         Write-Debug2 "still not found after forced install; retrying via uninstall+install"
         Write-StatusLine -Component $Label -Status 'retrying (clean reinstall)...'
-        Invoke-Managed -FilePath 'choco' -ArgumentList @('uninstall', $ChocoId, '--yes', '--force') -Component $Label -Status 'removing stale install...' | Out-Null
-        $code = Invoke-Managed -FilePath 'choco' -ArgumentList @('install', $ChocoId, '--yes', '--force') -Component $Label -Status 'reinstalling...' -Detailer $script:ChocoDetailer
+        $retryUninstallArgs = @('uninstall', $ChocoId, '--yes', '--force')
+        $retryInstallArgs   = @('install', $ChocoId, '--yes', '--force')
+        if ($script:DebugMode) {
+            $retryUninstallArgs += @('--verbose', '--debug', '--not-silent')
+            $retryInstallArgs   += @('--verbose', '--debug', '--not-silent')
+        }
+        Invoke-Managed -FilePath 'choco' -ArgumentList $retryUninstallArgs -Component $Label -Status 'removing stale install...' | Out-Null
+        $code = Invoke-Managed -FilePath 'choco' -ArgumentList $retryInstallArgs -Component $Label -Status 'reinstalling...' -Detailer $script:ChocoDetailer
         $post = Wait-ForToolVerified -VerifyCmds $VerifyCmds -VerifyArg $VerifyArg
     }
 
@@ -503,10 +545,45 @@ function Install-MinGWToolchain {
     return $true
 }
 
+# Guarantees MSYS2 (and the MinGW-w64 toolchain living inside it) is FULLY
+# gone, regardless of what Chocolatey's own bookkeeping believes. Confirmed
+# directly on a real machine: "choco uninstall msys2" can complete (or even
+# report the package as already gone from its own registry) while the
+# extracted C:\tools\msys64 directory - including everything pacman later
+# installed into mingw64\bin - is still sitting on disk. This is the same
+# class of choco/reality drift we've hit with other packages, just with no
+# native uninstaller to fall back on (it's a zip extraction, not an
+# installer), so the only reliable fix is to force-remove the directory
+# ourselves and clean up the PATH entry we added for it.
+function Uninstall-MSYS2Cleanup {
+    $label    = 'MSYS2'
+    $msys2    = Get-Msys2Root
+    $mingwBin = Join-Path $msys2 'mingw64\bin'
+
+    if (-not (Test-Path $msys2)) {
+        Write-Debug2 "MSYS2 root already gone: $msys2"
+        return
+    }
+
+    Write-StatusLine -Component $label -Status 'removing leftover MSYS2/MinGW-w64 files...'
+    try {
+        Remove-Item -LiteralPath $msys2 -Recurse -Force -ErrorAction Stop
+        Remove-MachinePathEntry -Directory $mingwBin
+        Write-StatusLine -Component $label -Status 'fully removed' -Kind ok -Final
+    }
+    catch {
+        Write-StatusLine -Component $label -Status ("cleanup failed: {0}" -f $_.Exception.Message) -Kind fail -Final
+        $script:Failures += $label
+    }
+}
+
 # ======================================================================
 # Main
 # ======================================================================
-if (-not $RepoRoot) { $RepoRoot = $PSScriptRoot }
+# Canonical layout: this script lives in <repo>\scripts\, so when run
+# directly without -RepoRoot (e.g. double-clicked from inside the repo),
+# the actual repo root is one level up from this script's own folder.
+if (-not $RepoRoot) { $RepoRoot = Split-Path -Parent $PSScriptRoot }
 $RepoRoot   = (Resolve-Path $RepoRoot).Path
 
 # README is ALWAYS taken from the root of the cloned repository.
@@ -542,6 +619,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     $argList = @('-ExecutionPolicy','Bypass','-NoProfile','-File',"`"$PSCommandPath`"",'-RepoRoot',"`"$RepoRoot`"")
     if ($script:DebugMode) { $argList += '-Debug' }
     if ($Uninstall)        { $argList += '-Uninstall' }
+    if ($CI)               { $argList += '-CI' }
     try {
         $proc = Start-Process -FilePath (Get-Process -Id $PID).Path -Verb RunAs -ArgumentList $argList -PassThru -Wait
     } catch { Fail 'Elevation was declined. Re-run from an Administrator PowerShell.' }
@@ -550,7 +628,8 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     # is not enough when this script was launched via "Run with PowerShell" or
     # a shortcut using -NoExit - those keep the host process (and its window)
     # alive after the script returns, leaving a stale idle prompt behind.
-    if ($script:DebugMode) {
+    # -CI never waits on a prompt, even combined with -Debug.
+    if ($script:DebugMode -and -not $CI) {
         Write-Host "`n[debug] Elevated window finished (exit $($proc.ExitCode)). Press Enter to close this original window..." -ForegroundColor DarkGray
         [void](Read-Host)
         exit $proc.ExitCode
@@ -603,6 +682,10 @@ if ($Uninstall) {
             if ($m) { Uninstall-Component -ChocoId $id -Label $m.Label -VerifyCmds $m.Cmds -VerifyArg $m.Arg | Out-Null }
             else    { Uninstall-Component -ChocoId $id -Label $id     -VerifyCmds @($id)                  | Out-Null }
         }
+        # Force-cleanup backstop: MSYS2's install directory can outlive
+        # Chocolatey's own record of it (confirmed on a real machine), so
+        # this runs regardless of what Uninstall-Component above concluded.
+        if ($ids -contains 'msys2') { Uninstall-MSYS2Cleanup }
     }
 
     Write-Info 'Summary'
@@ -613,7 +696,7 @@ if ($Uninstall) {
         Write-Host '[+] All toolchain components removed (or were already absent).' -ForegroundColor Green
     }
 
-    if ($script:DebugMode) {
+    if ($script:DebugMode -and -not $CI) {
         Write-Host ''
         Write-Host '[debug] Leaving window open. Press Enter to close...' -ForegroundColor DarkGray
         [void](Read-Host)
@@ -684,33 +767,58 @@ else {
     if (-not $script:DebugMode) { Write-Host 'Re-run with -Debug for full troubleshooting detail.' -ForegroundColor Yellow }
 }
 
-# ---- 5. Prompt, open README, then close -------------------------------
+# ---- 5. Open README (unless -CI), then build the project --------------
+# -CI is fully hands-off: never opens an editor.
+if (-not $CI) {
+    Update-SessionPath
+    if (Test-Path $ReadmePath) {
+        $codeExe = Find-VSCodeExe
+        if ($codeExe) {
+            Write-Host ''
+            Write-Host 'Opening the project in VS Code...' -ForegroundColor Green
+            Start-Process -FilePath $codeExe -ArgumentList @("`"$RepoRoot`"", "`"$ReadmePath`"")
+        }
+        else {
+            Write-Warn2 "VS Code was not found on PATH or in common install locations. README.md was NOT opened automatically."
+            Write-Warn2 "Open it manually in VS Code: $ReadmePath"
+        }
+    }
+    else { Write-Warn2 "No README.md found at '$ReadmePath'." }
+}
+
+# Build the project - only if the toolchain came up clean, and only if this
+# checkout actually has a CMake preset (keeps this generic rather than
+# assuming every repo that ever uses these scripts is this exact project).
+$buildOk = $true
+$presetsFile = Join-Path $RepoRoot 'CMakePresets.json'
+if ($success -and (Test-Path $presetsFile)) {
+    Write-Info 'Building the project'
+    Push-Location -LiteralPath $RepoRoot
+    try {
+        Write-Host '[*] cmake --preset debug' -ForegroundColor Yellow
+        cmake --preset debug
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host '[*] cmake --build --preset debug-build' -ForegroundColor Yellow
+            cmake --build --preset debug-build
+            $buildOk = ($LASTEXITCODE -eq 0)
+        }
+        else {
+            $buildOk = $false
+            Write-Warn2 "cmake --preset debug failed (exit $LASTEXITCODE) - skipping build."
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+if ($CI) {
+    exit $(if ($success -and $buildOk) { 0 } else { 1 })
+}
+
+# Interactive runs: leave this window open so the build output (and this
+# session) stays available to keep working in - no forced close, no wait.
 Write-Host ''
-Write-Host ("Press Enter to open {0}..." -f $readmeRel) -ForegroundColor Cyan
-[void](Read-Host)
-
-Update-SessionPath
-if (Test-Path $ReadmePath) {
-    $codeExe = Find-VSCodeExe
-    if ($codeExe) {
-        Write-Host 'Opening the project in VS Code...' -ForegroundColor Green
-        Start-Process -FilePath $codeExe -ArgumentList @("`"$RepoRoot`"", "`"$ReadmePath`"")
-    }
-    else {
-        Write-Warn2 "VS Code was not found on PATH or in common install locations. README.md was NOT opened automatically."
-        Write-Warn2 "Open it manually in VS Code: $ReadmePath"
-    }
-}
-else { Write-Warn2 "No README.md found at '$ReadmePath'." }
-
-if ($script:DebugMode) {
-    Write-Host ''
-    Write-Host '[debug] Leaving window open. Press Enter to close...' -ForegroundColor DarkGray
-    [void](Read-Host)
-}
-else {
-    Write-Host ''
-    Write-Host 'Closing this window...' -ForegroundColor Green
-    Start-Sleep -Seconds 1
-}
-exit $(if ($success) { 0 } else { 1 })
+if ($success -and $buildOk) { Write-Host 'Setup complete.' -ForegroundColor Green }
+else { Write-Host 'Setup finished with issues - see above.' -ForegroundColor Yellow }
+Write-Host 'This window will remain open.' -ForegroundColor Green
