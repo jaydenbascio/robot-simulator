@@ -1,6 +1,3 @@
-# setup.ps1 - Bootstrap (Step 1/2, runs standalone from Downloads): install Git via
-# winget, clone the repo, hand off to <repo>\scripts\setupc.ps1. See AGENTS.md.
-# -ClonePath <dir> | -Uninstall | -ci.
 param(
     [string] $ClonePath,
     [switch] $Uninstall,
@@ -12,81 +9,117 @@ $ErrorActionPreference = 'Stop'
 $RepositoryUrl  = 'https://github.com/jaydenbascio/robot-simulator'
 $RepositoryName = [System.IO.Path]::GetFileNameWithoutExtension(($RepositoryUrl -split '/')[-1])
 
-# Set by any non-fatal warning; gates the final auto-close (only close this window if error-free).
+# Set by any non-fatal warning
+# Script will only exit cleanly if this is still false
 $script:HadIssue = $false
 
+# Write a title (55 = at top, 55 at bottom, text in middle)
 function Write-Banner { param([string] $Title)
     $bar = '=' * 55
     Write-Host $bar -ForegroundColor White; Write-Host $Title -ForegroundColor White; Write-Host $bar -ForegroundColor White
 }
+
+# Functions for writing status messages
 function Write-Info  { param([string] $Message) Write-Host "`n$Message" -ForegroundColor Cyan }
-function Write-Warn2 { param([string] $Message) Write-Host "[!] $Message" -ForegroundColor Yellow }
+function Write-Warn { param([string] $Message) Write-Host "[!] $Message" -ForegroundColor Yellow }
 function Write-Step  { param([string] $Message) Write-Host "[*] $Message" -ForegroundColor Yellow }
 function Write-Ok    { param([string] $Message) Write-Host "[+] $Message" -ForegroundColor Green }
 
+# Display error message and exit application
 function Fail { param([string] $Message)
-    Write-Host ''; Write-Host "[X] $Message" -ForegroundColor Red
-    if ($Host.Name -eq 'ConsoleHost') { Write-Host ''; Write-Host 'Press Enter to close...' -ForegroundColor DarkGray; [void](Read-Host) }
+    Write-Host '';
+    Write-Host "[X] $Message" -ForegroundColor Red
+    if ($Host.Name -eq 'ConsoleHost') {
+        Write-Host '';
+        Write-Host 'Press Enter to close...' -ForegroundColor DarkGray;
+        [void](Read-Host)
+    }
+
     exit 1
 }
 
+# Get the version of a tool (and if it exists) given a list of possible commands
 function Get-ToolVersion {
     param([string[]] $Commands, [string] $VersionArg = '--version')
     foreach ($c in $Commands) {
         $cmd = Get-Command $c -ErrorAction SilentlyContinue
         if ($cmd) {
             $ver = 'installed'
-            try { $out = & $cmd.Source $VersionArg 2>&1 | Select-Object -First 1; if ($out) { $ver = ([string]$out).Trim() } } catch { }
+
+            # Get version if possible
+            try {
+                $out = & $cmd.Source $VersionArg 2>&1 | Select-Object -First 1;
+                if ($out) {
+                    $ver = ([string]$out).Trim()
+                }
+            } catch { }
+            
             return [pscustomobject]@{ Found = $true; Version = $ver; Path = $cmd.Source }
         }
     }
+    
+    # Aw man, we didn't find a command that worked!
     return [pscustomobject]@{ Found = $false; Version = $null; Path = $null }
 }
 
-# Minimal registry PATH refresh (choco's refreshenv isn't available yet at this pre-choco stage).
+# Refresh PATH environment variable
 function Update-SessionPath {
+    # Get PATH environment variable from the system
     $machinePath = [System.Environment]::GetEnvironmentVariable('Path', 'Machine')
     $userPath    = [System.Environment]::GetEnvironmentVariable('Path', 'User')
+    
+    # Git has likely not been added yet (if we just installed it)
     $extra = @( (Join-Path $env:ProgramFiles 'Git\cmd') )
+    
+    # Extract all entries in PATH
     $parts = @($machinePath, $userPath) + $extra |
-        Where-Object { $_ } | ForEach-Object { $_ -split ';' } | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+        Where-Object { $_ } |                     # Filter out empty or null entries
+        ForEach-Object { $_ -split ';' } |        # Split by semicolon (;)
+        Where-Object { $_ -and (Test-Path $_) } | # Filter out invalid paths
+        Select-Object -Unique                     # Filter out duplicates
+
+    # Set current PATH environment variable to system-wide PATH
     $env:Path = ($parts -join ';')
 }
 
 # ===== Clone-location discovery =====
+
+# Convert github URLs to a standard format (https://github.com/user/repo)
 function Get-NormalizedRepoUrl { param([string] $Url)
     if (-not $Url) { return '' }
     ($Url.Trim().TrimEnd('/') -replace '\.git$', '').ToLowerInvariant()
 }
 
-# Reads origin URL straight from .git\config (no git.exe needed - the dir check runs before the Git check).
+# Read origin URL from .git\config file
 function Get-OriginUrlFromGitConfig { param([string] $Path)
     $configPath = Join-Path $Path '.git\config'
     if (-not (Test-Path $configPath)) { return $null }
+
     $content = Get-Content -Raw -Path $configPath -ErrorAction SilentlyContinue
     if (-not $content) { return $null }
+
+    # Find and read url of block that looks something like this:
+    # ```
+    # .... (Other stuff) ...
+    # [remote "origin"]
+    #         url = https://github.com/user/repo
+    # .... (More stuff)  ...
+    # ```
     $m = [regex]::Match($content, '\[remote\s+"origin"\][^\[]*?\burl\s*=\s*(\S+)', 'IgnoreCase, Singleline')
-    if ($m.Success) { return $m.Groups[1].Value.Trim() }
+    if ($m.Success) {
+        return $m.Groups[1].Value.Trim()
+    }
+
     return $null
 }
 
-# A folder counts as "this repo" only if its origin remote actually matches - not just a name guess.
+# A folder matches $RepositoryUrl iff its origin remote matches
 function Test-IsMatchingClone { param([string] $Path)
     $origin = Get-OriginUrlFromGitConfig -Path $Path
-    if (-not $origin) { return $false }
-    (Get-NormalizedRepoUrl $origin) -eq (Get-NormalizedRepoUrl $RepositoryUrl)
-}
-
-# -ci's narrow search: script dir (+RepositoryName subfolder), then Documents (+subfolder). No prompts.
-function Find-ExistingCloneForCI {
-    $candidates = New-Object System.Collections.Generic.List[string]
-    if ($PSScriptRoot) { $candidates.Add($PSScriptRoot); $candidates.Add((Join-Path $PSScriptRoot $RepositoryName)) }
-    $docs = [Environment]::GetFolderPath('MyDocuments'); $candidates.Add($docs); $candidates.Add((Join-Path $docs $RepositoryName))
-    foreach ($c in $candidates) {
-        if (-not $c) { continue }
-        if ((Test-Path $c) -and (Test-IsMatchingClone $c)) { return $c }
+    if (-not $origin) {
+        return $false
     }
-    return $null
+    (Get-NormalizedRepoUrl $origin) -eq (Get-NormalizedRepoUrl $RepositoryUrl)
 }
 
 # Broad search (interactive/uninstall): cwd, script dir, and common user dev folders.
@@ -131,7 +164,7 @@ function Select-FolderDialog { param([string] $InitialPath, [string] $Descriptio
 
 # Opens the folder picker; fails setup if the user cancels. Returns the chosen parent folder.
 function Select-CloneFolder { param([string] $Initial)
-    Write-Warn2 'Opening folder picker...'
+    Write-Warn 'Opening folder picker...'
     $picked = Select-FolderDialog -InitialPath $Initial -Description 'Select the folder to clone the repository into'
     if (-not $picked) { Fail 'No folder was selected. Setup cancelled.' }
     return $picked
@@ -146,7 +179,7 @@ if ($Uninstall) { Write-Host '[MODE] Uninstall - this run will remove the toolch
 # 0. Elevate FIRST (Git/choco installers need admin) so the whole chain runs under one UAC prompt.
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Warn2 'Administrator rights required. Relaunching elevated before any checks run...'
+    Write-Warn 'Administrator rights required. Relaunching elevated before any checks run...'
     $elevateArgs = @('-ExecutionPolicy','Bypass','-NoProfile','-File',"`"$PSCommandPath`"")
     if ($ClonePath) { $elevateArgs += @('-ClonePath', "`"$ClonePath`"") }
     if ($Uninstall) { $elevateArgs += '-Uninstall' }
@@ -229,7 +262,7 @@ else {
             # Init submodules missing from an older clone (predating --recurse-submodules, e.g. vcpkg).
             Write-Step 'Syncing submodules...'
             git -C $targetDir submodule update --init --recursive
-            if ($LASTEXITCODE -ne 0) { $script:HadIssue = $true; Write-Warn2 "git submodule update failed (exit $LASTEXITCODE) - submodules may be missing." }
+            if ($LASTEXITCODE -ne 0) { $script:HadIssue = $true; Write-Warn "git submodule update failed (exit $LASTEXITCODE) - submodules may be missing." }
         }
         else { Fail "The folder '$targetDir' already exists and is not a Git repository. Move or remove it, then re-run setup.ps1." }
     }
@@ -246,7 +279,7 @@ else {
 Write-Info 'Handing off to the project installer...'
 $localSetup = if ($PSScriptRoot) { Join-Path $PSScriptRoot 'setupc.ps1' } else { $null }
 $repoSetupc = Join-Path $targetDir 'scripts\setupc.ps1'
-if ($localSetup -and (Test-Path $localSetup)) { $repoSetup = $localSetup; Write-Warn2 "Using local setupc.ps1 next to setup.ps1 (troubleshooting): $repoSetup" }
+if ($localSetup -and (Test-Path $localSetup)) { $repoSetup = $localSetup; Write-Warn "Using local setupc.ps1 next to setup.ps1 (troubleshooting): $repoSetup" }
 elseif (Test-Path $repoSetupc) { $repoSetup = $repoSetupc }
 else { Fail "Could not find setupc.ps1 next to setup.ps1 or in the repository's scripts folder at '$repoSetupc'." }
 
@@ -258,7 +291,7 @@ Start-Process -FilePath $hostExe -ArgumentList $argList
 
 # Only auto-close this window if the run was error-free; otherwise hold it so the warnings stay readable.
 if ($script:HadIssue) {
-    Write-Warn2 'Installer launched in a new window, but this bootstrap finished with warnings (see above).'
+    Write-Warn 'Installer launched in a new window, but this bootstrap finished with warnings (see above).'
     if ($Host.Name -eq 'ConsoleHost') { Write-Host ''; Write-Host 'Press Enter to close...' -ForegroundColor DarkGray; [void](Read-Host) }
 }
 else {

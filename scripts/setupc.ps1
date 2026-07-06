@@ -43,12 +43,12 @@ function Update-SessionPath {
 # ======================================================================
 # Main
 # ======================================================================
-# Canonical layout: this script lives in <repo>\scripts\, so without -RepoRoot the repo root is one level up.
+# This script lives in <repo>\scripts\, so without -RepoRoot the repo root is one level up
 if (-not $RepoRoot) { $RepoRoot = Split-Path -Parent $PSScriptRoot }
 $RepoRoot   = (Resolve-Path $RepoRoot).Path
 $ReadmePath = Join-Path $RepoRoot 'README.md'   # README is ALWAYS taken from the repo root
 
-# packages.config: prefer a local copy next to this script (troubleshooting); else the cloned repo root's.
+# packages.config either in root dir or in the cloned repo root's (prefer former)
 $localPkg = if ($PSScriptRoot) { Join-Path $PSScriptRoot 'packages.config' } else { $null }
 $repoPkg  = Join-Path $RepoRoot 'packages.config'
 if ($localPkg -and (Test-Path $localPkg) -and ($localPkg -ne $repoPkg)) { $PackagesFile = $localPkg; $usingLocalPkg = $true }
@@ -80,7 +80,10 @@ if ($Uninstall) {
 
     if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
         Write-Warn2 'Chocolatey is not installed - nothing to uninstall.'
-        if (-not $ci) { Write-Host ''; Write-Host 'Closing this window...' -ForegroundColor Green; Start-Sleep -Seconds 2 }
+        if (-not $ci) {
+            Write-Host ''; Write-Host 'Closing this window...' -ForegroundColor Green
+            Start-Sleep -Seconds 2
+        }
         exit 0
     }
 
@@ -140,9 +143,9 @@ else {
 # Auto-confirm every choco prompt (always say yes) so nothing blocks the unattended install below.
 choco feature enable -n allowGlobalConfirmation | Out-Null
 
-# ---- 2. Install the toolchain: one native packages.config install (choco honors each package's installArguments) ----
+# ---- 2. Install the toolchain using ONE native packages.config install
 Write-Info 'Toolchain (from packages.config)'
-if ($usingLocalPkg) { Write-Warn2 "Using local packages.config next to setupc.ps1 (troubleshooting): $PackagesFile" }
+if ($usingLocalPkg) { Write-Warn2 "Using local packages.config next to setupc.ps1 (should be in root directory): $PackagesFile" }
 choco install $PackagesFile --yes
 $installExit = $LASTEXITCODE
 $success = ($installExit -eq 0 -or $installExit -eq 3010)   # 3010 = success, reboot required
@@ -163,8 +166,8 @@ if (-not $ci) {
         if (-not $code) { $code = Get-Command code.cmd -ErrorAction SilentlyContinue }
         if ($code) {
             Write-Step 'Opening the project in VS Code...'
-            # Start code.cmd in a HIDDEN window: no visible command box, and VS Code's startup logs stay in that
-            # hidden console instead of spamming this terminal. VS Code's own GUI window still opens normally.
+
+            # Start code.cmd in a hidden window
             try { Start-Process -FilePath $code.Source -ArgumentList $RepoRoot, $ReadmePath -WindowStyle Hidden }
             catch { Write-Warn2 "Could not launch VS Code ($($_.Exception.Message)). Open it manually: $ReadmePath" }
         }
@@ -173,19 +176,24 @@ if (-not $ci) {
     else { Write-Warn2 "No README.md found at '$ReadmePath'." }
 }
 
-# ---- 5. Build - only if the toolchain came up clean AND this checkout has a CMake preset (stay generic) ----
+# ---- 5. Build only if the toolchain came up clean AND this checkout has a CMake preset ----
 $buildOk = $true
 $presetsFile = Join-Path $RepoRoot 'CMakePresets.json'
 if ($success -and (Test-Path $presetsFile)) {
     Write-Info 'Building the project'
 
-    # Wipe the build directory first so a stale/corrupt CMake cache can't break the configure step. Resolve the
-    # debug preset's binaryDir from CMakePresets.json (fall back to <repo>\build).
+    # Resolve the debug preset's binaryDir from CMakePresets.json (fall back to <repo>\build).
     $buildDir = Join-Path $RepoRoot 'build'
     try {
         $cp = (Get-Content -Raw $presetsFile | ConvertFrom-Json).configurePresets | Where-Object { $_.name -eq 'debug' } | Select-Object -First 1
-        if ($cp -and $cp.binaryDir) { $buildDir = [System.IO.Path]::GetFullPath($cp.binaryDir.Replace('${sourceDir}', $RepoRoot).Replace('${presetName}', 'debug')) }
+        if ($cp -and $cp.binaryDir) {
+            $buildDir = [System.IO.Path]::GetFullPath(
+                $cp.binaryDir.Replace('${sourceDir}', $RepoRoot).Replace('${presetName}', 'debug')
+            )
+        }
     } catch { }
+    
+    # Wipe the build directory first so a stale/corrupt CMake cache can't break the configure step
     if (Test-Path $buildDir) {
         Write-Step "Removing existing build folder (clean cache): $buildDir"
         try { Remove-Item -LiteralPath $buildDir -Recurse -Force -ErrorAction Stop }
@@ -201,6 +209,7 @@ if ($success -and (Test-Path $presetsFile)) {
     }
     catch { Write-Warn2 "Could not disable Smart App Control: $($_.Exception.Message)" }
 
+    # Try to run cmake
     Push-Location -LiteralPath $RepoRoot
     try {
         Write-Step 'cmake --preset debug'

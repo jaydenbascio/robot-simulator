@@ -29,7 +29,6 @@ jobs:
 
       - name: Run Clang-Format Check
         shell: bash
-        # FIXED: Corrected the regex to escape the dot properly in a literal block
         run: |
           git ls-files | grep -E '\.(cpp|h|hpp)$' | xargs clang-format --dry-run --Werror
 
