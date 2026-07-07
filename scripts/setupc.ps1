@@ -5,12 +5,6 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-# Write-Progress (used internally by Expand-Archive - e.g. the official Chocolatey bootstrap script, run via
-# Invoke-Expression, unzipping chocolatey.zip) renders its own animated bar, independent of anything
-# --quiet/--no-progress controls on git/choco/winget. It's silenced via $ProgressPreference - but this MUST be
-# $global: Expand-Archive is an advanced function inside the Microsoft.PowerShell.Archive module, and a
-# script-scope value doesn't reliably reach it across the IEX'd bootstrap's scope; global is in every scope
-# chain. -ci must be fully animation-free; interactive keeps native feedback visible.
 if ($ci) { $global:ProgressPreference = 'SilentlyContinue' }
 
 function Write-Banner { param([string] $Title)
@@ -35,9 +29,7 @@ function Show-ClosingFooter { param([bool] $Ok)
     elseif ($Host.Name -eq 'ConsoleHost') { Write-Host ''; Write-Host 'Press Enter to close...' -ForegroundColor DarkGray; [void](Read-Host) }
 }
 
-# choco's own refreshenv when available; registry merge before choco exists (and always in -Uninstall - see
-# below). The try/catch is REQUIRED: refreshenv emits non-terminating errors that our
-# $ErrorActionPreference='Stop' would turn script-fatal.
+# choco's own refreshenv when available; registry merge before choco exists (and always in -Uninstall)
 function Update-SessionPath {
     if (-not $env:ChocolateyInstall) {
         # Prefer choco's own persisted install location (custom installs set this); ProgramData is just the default.
@@ -45,10 +37,8 @@ function Update-SessionPath {
         if (-not $env:ChocolateyInstall) { $env:ChocolateyInstall = Join-Path $env:ProgramData 'chocolatey' }
     }
     # -Uninstall deletes $env:ChocolateyInstall later in this SAME process. Importing chocolateyProfile.psm1
-    # loads Chocolatey.PowerShell.dll into this process, and a loaded .NET assembly can't be unloaded without
-    # unloading the whole process - so that later Remove-Item would fail with "Access ... is denied" on the DLL,
-    # no matter how elevated we are. Skip the module entirely here; the plain merge below is enough to resolve
-    # choco/git on PATH, which is all -Uninstall needs.
+    # loads Chocolatey.PowerShell.dll into this process, which is what Update-SessionEnvironment needs to refresh the PATH.
+    # So do it first, then delete the env var.
     if (-not $Uninstall) {
         Import-Module (Join-Path $env:ChocolateyInstall 'helpers\chocolateyProfile.psm1') -ErrorAction SilentlyContinue
         if (Get-Command Update-SessionEnvironment -ErrorAction SilentlyContinue) {
@@ -59,7 +49,7 @@ function Update-SessionPath {
 }
 
 # Native choco config: auto-confirm every prompt (--yes does NOT cover the metapackage uninstall prompt)
-# and no download-progress animation. Persistent global settings, deliberately.
+# and no download-progress animation.
 function Set-ChocoDefaults {
     choco feature enable -n allowGlobalConfirmation | Out-Null
     choco feature disable -n showDownloadProgress | Out-Null
@@ -105,8 +95,7 @@ if ($Uninstall) {
     $anyFail = $false
 
     # VS Code may still be running (a non-ci install auto-launches it at the end), and its own chocolatey
-    # uninstaller can't replace/delete files that are still in use - the uninstall would silently leave it
-    # behind. Close it first; -ErrorAction SilentlyContinue makes this a no-op when it isn't running.
+    # uninstaller can't replace/delete files that are still in use, so close it first
     Get-Process -Name Code -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
     if (-not (Get-Command choco -ErrorAction SilentlyContinue)) { Write-Warn2 'Chocolatey is not installed - skipping package removal.' }
@@ -229,7 +218,7 @@ else {
 }
 
 # ---- 4. Open README in VS Code (skipped in -ci). Detached, hidden window: no cmd box, and VS Code's
-#         Electron startup logs land in that hidden console instead of this terminal. GUI opens normally. ----
+#         Electron startup logs land in a hidden console instead of this terminal. GUI opens normally. ----
 if (-not $ci) {
     $code = Get-Command code, code.cmd -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not (Test-Path $ReadmePath)) { Write-Warn2 "No README.md found at '$ReadmePath'." }

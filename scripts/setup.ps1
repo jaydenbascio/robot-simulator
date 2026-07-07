@@ -5,10 +5,6 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-# Write-Progress (used internally by various cmdlets, incl. module advanced functions like Expand-Archive)
-# renders its own animated bar independent of anything --quiet/--no-progress controls on git/winget. Silenced
-# via $global:ProgressPreference - global (not script scope) so it reliably reaches module functions. -ci
-# must be fully animation-free; interactive keeps native feedback visible.
 if ($ci) { $global:ProgressPreference = 'SilentlyContinue' }
 
 $RepositoryUrl  = 'https://github.com/jaydenbascio/robot-simulator'
@@ -106,8 +102,8 @@ $defaultParent = [Environment]::GetFolderPath('MyDocuments')
 $targetDir = $null
 
 if ($Uninstall) {
-    # Locate only - no prompts, no clone, no Git install. A setupc.ps1 next to this script also suffices.
-    Write-Info 'Repository location (uninstall - no prompts, no clone)'
+    # Locate target directory for clone
+    Write-Info 'Repository location (uninstall)'
     if ($ClonePath -and (Test-Path (Join-Path $ClonePath "$RepositoryName\.git"))) { $targetDir = Join-Path $ClonePath $RepositoryName }
     if (-not $targetDir) { $targetDir = Find-ExistingClone }
     if (-not $targetDir -and $PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot 'setupc.ps1'))) { $targetDir = $PSScriptRoot }
@@ -141,9 +137,8 @@ else {
     if (-not $targetDir) { $targetDir = Join-Path $parentDir $RepositoryName }
 
     # Git via winget (choco doesn't exist yet); --accept flags keep it unattended. Interactive runs leave the
-    # installer UI/progress visible on purpose. -ci adds --silent (no installer GUI at all - nothing here
-    # should ever show a window in -ci) and --disable-interactivity, and pipes output away (also drops
-    # winget's own progress animation, same console-detection trick as git's --quiet).
+    # installer UI/progress visible on purpose. -ci adds --silent (no installer GUI at all) and --disable-interactivity,
+    # and pipes output away (also drops winget's own progress animation, same console-detection trick as git's --quiet).
     Write-Info 'Version control'
     if (Get-Command git -ErrorAction SilentlyContinue) { Write-Ok "Git already installed  $(git --version)" }
     else {
@@ -156,7 +151,7 @@ else {
         Write-Ok "Git installed  $(git --version)"
     }
 
-    # Clone (--quiet: no progress animation, errors still print)
+    # Clone (--quiet means no progress animation but errors still print)
     Write-Info 'Clone'
     if (Test-Path (Join-Path $targetDir '.git')) {
         Write-Ok 'Repository already cloned (reusing)'
@@ -174,7 +169,7 @@ else {
     }
 }
 
-# Hand off to setupc.ps1 (prefer one next to THIS script - troubleshooting), then close.
+# Hand off to setupc.ps1 (prefer one next to THIS script for troubleshooting), then close
 Write-Info 'Handing off to the project installer...'
 $repoSetup  = Join-Path $targetDir 'scripts\setupc.ps1'
 $localSetup = if ($PSScriptRoot) { Join-Path $PSScriptRoot 'setupc.ps1' }
