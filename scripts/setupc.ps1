@@ -236,19 +236,14 @@ $presetsFile = Join-Path $RepoRoot 'CMakePresets.json'
 if ($success -and (Test-Path $presetsFile)) {
     Write-Info 'Building the project'
 
-    # Wipe the debug preset's binaryDir (fallback <repo>\build) so a stale CMake cache can't break configure.
+    # Resolve the build directory path from the preset or use fallback
     $buildDir = Join-Path $RepoRoot 'build'
     try {
         $cp = (Get-Content -Raw $presetsFile | ConvertFrom-Json).configurePresets | Where-Object name -eq 'debug' | Select-Object -First 1
         if ($cp.binaryDir) { $buildDir = [IO.Path]::GetFullPath($cp.binaryDir.Replace('${sourceDir}', $RepoRoot).Replace('${presetName}', 'debug')) }
     } catch { }
-    if (Test-Path $buildDir) {
-        Write-Step "Removing existing build folder (clean cache): $buildDir"
-        try { Remove-Item -LiteralPath $buildDir -Recurse -Force } catch { Write-Warn2 "Could not fully remove '$buildDir': $($_.Exception.Message)" }
-    }
 
-    # Disable Smart App Control so freshly-compiled unsigned binaries can run.
-    # The '' | is REQUIRED: CiTool -r blocks on a "Press Enter to Continue" stdin prompt.
+    # Disable Smart App Control so freshly-compiled unsigned binaries can run
     Write-Step 'Disabling Smart App Control...'
     try {
         Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' -Name 'VerifiedAndReputablePolicyState' -Value 0
@@ -259,12 +254,41 @@ if ($success -and (Test-Path $presetsFile)) {
     try {
         Write-Step 'cmake --preset debug'
         cmake --preset debug
+        
+        # If the first run fails, delete the stale cache artifacts and retry
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn2 "Initial cmake --preset debug failed. Attempting to clear stale cache files..."
+            
+            if (Test-Path $buildDir) {
+                # Target only the specific files/folders needed to clear the CMake cache
+                # This will prevent large packages (Like MinGW) from being rebuilt every time (see issue #1)
+                $cacheFiles = @(
+                    Join-Path $buildDir 'CMakeCache.txt',
+                    Join-Path $buildDir 'CMakeFiles'
+                )
+
+                foreach ($item in $cacheFiles) {
+                    if (Test-Path $item) {
+                        Write-Step "Removing stale artifact: $item"
+                        try { Remove-Item -LiteralPath $item -Recurse -Force } catch { Write-Warn2 "Could not remove '$item': $($_.Exception.Message)" }
+                    }
+                }
+
+                Write-Step 'Retrying cmake --preset debug after clearing cache...'
+                cmake --preset debug
+            }
+        }
+
+        # If configuring succeeded (either first try or after retry), proceed to build
         if ($LASTEXITCODE -eq 0) {
             Write-Step 'cmake --build --preset debug-build'
             cmake --build --preset debug-build
             $buildOk = $LASTEXITCODE -eq 0
         }
-        else { $buildOk = $false; Write-Warn2 "cmake --preset debug failed (exit $LASTEXITCODE) - skipping build." }
+        else { 
+            $buildOk = $false
+            Write-Warn2 "cmake --preset debug failed after retry (exit $LASTEXITCODE) - skipping build." 
+        }
     }
     finally { Pop-Location }
 }
