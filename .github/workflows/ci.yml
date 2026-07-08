@@ -15,12 +15,23 @@ jobs:
     name: Ubuntu Lint & Doxygen
     runs-on: ubuntu-latest
     env:
-      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+      VCPKG_BINARY_SOURCES: "clear;default,readwrite"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: true
+
+      - name: Cache vcpkg artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/vcpkg/archives
+            ${{ github.workspace }}/vcpkg/downloads
+          key: ${{ runner.os }}-vcpkg-${{ hashFiles('vcpkg.json') }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-${{ hashFiles('vcpkg.json') }}-
+            ${{ runner.os }}-vcpkg-
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
@@ -42,12 +53,29 @@ jobs:
     name: Windows Build & Test
     runs-on: windows-latest
     env:
-      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+      VCPKG_BINARY_SOURCES: "clear;default,readwrite"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: true
+
+      - name: Cache vcpkg artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/vcpkg/archives
+            ${{ github.workspace }}/vcpkg/downloads
+          # run_id makes every run save a fresh cache; restore-keys pulls the newest prior one
+          key: ${{ runner.os }}-vcpkg-${{ hashFiles('vcpkg.json') }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-${{ hashFiles('vcpkg.json') }}-
+            ${{ runner.os }}-vcpkg-
+      - name: Cache Chocolatey mingw
+        uses: actions/cache@v4
+        with:
+          path: C:\ProgramData\chocolatey\lib\mingw
+          key: ${{ runner.os }}-choco-mingw-${{ hashFiles('packages.config') }}
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
@@ -69,6 +97,11 @@ jobs:
             Where-Object { $_ -and (Test-Path $_) } |
             Select-Object -Unique |
             Add-Content -Path $env:GITHUB_PATH
+
+          # On a choco-cache hit, `choco install` skips mingw and never adds it to the
+          # Machine PATH, so find gcc under the restored lib and put its dir on PATH.
+          $gcc = Get-ChildItem 'C:\ProgramData\chocolatey\lib\mingw' -Recurse -Filter gcc.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($gcc) { Split-Path $gcc.FullName | Add-Content -Path $env:GITHUB_PATH }
 
       - name: Test (Debug)
         run: ctest --preset debug-test
