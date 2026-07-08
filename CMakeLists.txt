@@ -11,6 +11,11 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerOptions)
 include(ProjectVersion)
 
+# Statically link GCC runtime executables so stale copies are not used
+if(MINGW)
+    add_link_options(-static -static-libgcc -static-libstdc++)
+endif()
+
 # For distribution and installation
 include(GNUInstallDirs)
 
