@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main, fix-cache ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, fix-cache ]
+    branches: [ main ]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -53,11 +53,12 @@ jobs:
     name: Windows Build & Test
     runs-on: windows-latest
     env:
-      # Pin the binary cache to ONE explicit dir instead of the ambiguous default
-      # (%LOCALAPPDATA%\vcpkg\archives, which depends on user/elevation). This is the
-      # exact folder we cache below, so restored archives are guaranteed to be found.
-      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-bincache
-      VCPKG_BINARY_SOURCES: "clear;default,readwrite"
+      # Name the binary cache dir explicitly via a `files` source. We deliberately do NOT
+      # use the `default` source: lukka/run-vcpkg exports its own VCPKG_DEFAULT_BINARY_CACHE
+      # (a per-run GUID temp dir) into GITHUB_ENV, which overrides any value we set, so
+      # `default` wrote archives to an ephemeral folder that was never cached -> rebuild
+      # every run. A `files,<path>` source names the dir directly and is immune to that.
+      VCPKG_BINARY_SOURCES: 'clear;files,${{ github.workspace }}\.vcpkg-bincache,readwrite'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
