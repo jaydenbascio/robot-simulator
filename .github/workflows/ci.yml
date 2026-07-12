@@ -46,7 +46,7 @@ jobs:
       - name: Run Doxygen Validation
         uses: mattnotmitt/doxygen-action@v1.12.0
         with:
-          doxyfile-path: './Doxyfile'
+          doxyfile-path: './docs/Doxyfile'
           working-directory: '.'
 
   windows-build-test:
