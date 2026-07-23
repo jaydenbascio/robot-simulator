@@ -38,3 +38,9 @@ GENERATE_HTML          = YES
 HTML_OUTPUT            = html
 GENERATE_LATEX         = NO
 GENERATE_XML           = NO
+
+# Configure Doxygen input and output folders
+INPUT                  = ../libs ../apps
+RECURSIVE              = YES
+FILE_PATTERNS          = *.h *.hpp
+OUTPUT_DIRECTORY       = . 
