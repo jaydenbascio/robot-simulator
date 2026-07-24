@@ -8,18 +8,19 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
+        "CMAKE_MAKE_PROGRAM": "ninja",
         "CMAKE_TOOLCHAIN_FILE": {
           "type": "FILEPATH",
           "value": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake"
         },
-		"VCPKG_TARGET_TRIPLET": "x64-mingw-static",
-		"VCPKG_HOST_TRIPLET": "x64-mingw-static",
-		"VCPKG_CHAINLOAD_TOOLCHAIN_FILE": {
-			"type": "FILEPATH",
-			"value": "${sourceDir}/vcpkg/scripts/toolchains/mingw.cmake"
-		},
-		"VCPKG_TARGET_ARCHITECTURE": "x64",
-		"VCPKG_CRT_LINKAGE": "dynamic"
+        "VCPKG_TARGET_TRIPLET": "x64-mingw-static",
+        "VCPKG_HOST_TRIPLET": "x64-mingw-static",
+        "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": {
+          "type": "FILEPATH",
+          "value": "${sourceDir}/vcpkg/scripts/toolchains/mingw.cmake"
+        },
+        "VCPKG_TARGET_ARCHITECTURE": "x64",
+        "VCPKG_CRT_LINKAGE": "dynamic"
       }
     },
     {
@@ -36,7 +37,7 @@
       "displayName": "Debug + AddressSanitizer",
       "inherits": "debug",
       "cacheVariables": {
-        "CMAKE_CXX_FLAGS":  "-fsanitize=address,undefined -fno-omit-frame-pointer"
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer"
       }
     },
     {
