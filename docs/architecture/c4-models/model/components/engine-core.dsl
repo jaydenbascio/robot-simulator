@@ -1,9 +1,9 @@
 engine = container "Simulation Engine Core" "Handles physics and robot state." "C++ Library" {
     
     # --- LEVEL 3: COMPONENTS ---
-    physEngine = component "Box2D Physics Solver" "Updates virtual hardware state using Box2D physics engine" "Box2D"
+    physEngine = component "Jolt Physics Solver" "Updates virtual hardware state using the Jolt Physics engine" "Jolt Physics"
     v5HAL = component "V5 Hardware Abstraction Layer" "Provides a mock interface for PROS functionality" "C++"
-    v5Hardware = component "V5 Hardware Emulators" "Maintains virtual hardware state and read/write buffers for user interface." "C++ / Box2D"
+    v5Hardware = component "V5 Hardware Emulators" "Maintains virtual hardware state and read/write buffers for user interface." "C++ / Jolt Physics"
 
     userProgram = component "Robot User Program" "Dynamically loads and runs user DLLs." "C++"
     orchestrator = component "Simulation Orchestrator" "Manages the simulation loop and provides an interface for external system control." "C++"
